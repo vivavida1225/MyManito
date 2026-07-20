@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./data/db.sqlite3:/app/db.sqlite3
+      - ./data/media:/app/media
+      - ./data/static:/app/staticfiles
+    expose:
+      - "8000"
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data/static:/usr/share/nginx/html/static:ro
+      - ./data/media:/media:ro
+    restart: always
