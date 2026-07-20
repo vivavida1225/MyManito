@@ -7,8 +7,9 @@ from rest_framework.test import APIClient
 from apps.accounts.models import User
 from apps.chat.models import Message
 
-from .models import Participant, Team
+from .models import LeaderboardSnapshot, Participant, ScoreEvent, Team
 from .services import create_team_with_matching
+from .leaderboard_services import award_visit_score, generate_leaderboard_snapshot
 
 
 class TeamMatchingTests(TestCase):
@@ -46,6 +47,17 @@ class TeamMatchingTests(TestCase):
             Participant.objects.get(team=team, display_name="관리자").claimed_by,
             self.owner,
         )
+        self.assertTrue(all(participant.leaderboard_nickname for participant in participants))
+        self.assertTrue(all(participant.leaderboard_avatar_key for participant in participants))
+        self.assertEqual(len({participant.leaderboard_nickname for participant in participants}), len(participants))
+        self.assertTrue(
+            all(
+                participant.leaderboard_nickname.endswith("마니")
+                == participant.leaderboard_avatar_key.startswith("mani-")
+                for participant in participants
+            )
+        )
+        self.assertTrue(LeaderboardSnapshot.objects.filter(team=team).exists())
 
     def test_authenticated_api_creates_team(self):
         client = APIClient()
@@ -345,6 +357,48 @@ class TeamAdminLifecycleTests(TestCase):
         )
 
         self.assertEqual(ended_update_response.status_code, 400)
+
+    def test_admin_can_update_rules_only_while_active(self):
+        update_response = self.client.patch(
+            f"/api/teams/{self.team.code}/admin/rules/",
+            {"rules": "1) 익명 지키기\n2) 즐겁게 참여하기"},
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.data["rules"], "1) 익명 지키기\n2) 즐겁게 참여하기")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                f"/api/teams/{self.team.code}/admin/end/",
+                {"confirmation_code": self.team.code},
+                format="json",
+            )
+        ended_update_response = self.client.patch(
+            f"/api/teams/{self.team.code}/admin/rules/",
+            {"rules": "수정할 수 없는 규칙"},
+            format="json",
+        )
+
+        self.assertEqual(ended_update_response.status_code, 400)
+
+    def test_admin_can_send_announcement_to_claimed_members(self):
+        minji = Participant.objects.get(team=self.team, display_name="민지")
+        member = User.objects.create(username="announcement-member", kakao_id=903, kakao_nickname="민지")
+        minji.claimed_by = member
+        minji.save(update_fields=["claimed_by"])
+
+        response = self.client.post(
+            f"/api/teams/{self.team.code}/admin/announcement/",
+            {"message": "오늘도 마니또를 챙겨 주세요!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["sent_count"], 1)
+        notification = member.notifications.get()
+        self.assertEqual(notification.kind, "TEAM_ANNOUNCEMENT")
+        self.assertEqual(notification.body, "오늘도 마니또를 챙겨 주세요!")
 
     def test_end_requires_exact_code_retains_messages_and_allows_result(self):
         owner_participant = Participant.objects.get(team=self.team, display_name="관리자")

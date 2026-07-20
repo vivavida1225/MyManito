@@ -10,6 +10,8 @@ const router = useRouter();
 const auth = useAuthStore();
 const isSubmitting = ref(false);
 const errorMessage = ref("");
+const createdTeamCode = ref("");
+const showShareNotice = ref(false);
 const DEFAULT_RULES = `1) 마지막 날 전까지 내가 챙겨줄 마니또가 누구인지 누구에게도 말하거나 밝히지 않기!
 2) 혹시 마니또가 누구인지 알아차려도 모른 척 넘어가기!
 3) 게임 기간 동안 마니또를 최소 3번 이상 챙겨주기! (칭찬하기, 몰래 간식 주기 등)
@@ -89,7 +91,7 @@ async function createTeam() {
 
   isSubmitting.value = true;
   try {
-    await api.post("/teams/", {
+    const response = await api.post("/teams/", {
       code: form.code,
       participant_names: form.participantNames,
       rules: form.rules,
@@ -99,7 +101,8 @@ async function createTeam() {
       planned_end_timezone: form.plannedEndDate ? browserTimeZone : "",
       reveal_mode: form.revealMode,
     });
-    await router.push({ name: "dashboard" });
+    createdTeamCode.value = response.data.code;
+    showShareNotice.value = true;
   } catch (error) {
     const details = error.response?.data;
     errorMessage.value =
@@ -112,6 +115,11 @@ async function createTeam() {
     isSubmitting.value = false;
   }
 }
+
+async function goToDashboard() {
+  showShareNotice.value = false;
+  await router.push({ name: "dashboard" });
+}
 </script>
 
 <template>
@@ -120,7 +128,7 @@ async function createTeam() {
       <div>
         <p class="text-sm font-semibold text-amber-500">새로운 설렘 만들기</p>
         <h1 class="mt-1 text-2xl font-extrabold text-slate-800">새 팀 만들기</h1>
-        <p class="mt-2 text-sm text-slate-500">친구들과 함께할 마니또를 준비해 주세요.</p>
+        <p class="mt-2 text-sm text-slate-500">우리 같이 즐거운 추억을 만들어가요.</p>
       </div>
       <img :src="messagingImage" alt="메시지를 보내는 다람쥐 마니" class="w-24 shrink-0" />
     </div>
@@ -133,7 +141,7 @@ async function createTeam() {
           required
           maxlength="100"
           class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
-          placeholder="공백 없는 초대 코드"
+          placeholder="단체명, 우리만의 구호 등을 공백 없이 적어주세요"
         />
       </label>
 
@@ -215,7 +223,7 @@ async function createTeam() {
           class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
         />
         <span class="mt-1 block text-xs text-slate-500">
-          현재 지역 시간대 기준 해당 날짜 00:00부터 D-Day!로 표시돼요. 실제 게임은 관리자 종료 버튼으로만 종료할 수 있어요.
+          해당 날짜 00:00부터 D-Day!로 표시돼요. 실제 게임은 관리자 종료 버튼으로만 종료할 수 있어요.
         </span>
       </label>
 
@@ -250,5 +258,32 @@ async function createTeam() {
         {{ isSubmitting ? "팀 생성 중..." : "팀 만들기" }}
       </button>
     </form>
+
+    <div
+      v-if="showShareNotice"
+      class="fixed inset-0 z-50 flex items-end bg-slate-950/45 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="share-team-title"
+    >
+      <div class="mx-auto w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl">
+        <img :src="messagingImage" alt="메시지를 보내는 다람쥐 마니" class="mx-auto w-40" />
+        <p class="mt-3 text-sm font-bold text-amber-500">팀 만들기 완료!</p>
+        <h2 id="share-team-title" class="mt-1 text-2xl font-extrabold text-slate-800">
+          팀원들에게 초대해 보세요
+        </h2>
+        <p class="mt-4 text-sm leading-6 text-slate-600">
+          이제 팀 코드 <strong class="rounded-lg bg-amber-100 px-2 py-1 text-amber-900">{{ createdTeamCode }}</strong>를
+          카카오톡, 디스코드 등으로 팀원들에게 공유하세요!
+        </p>
+        <button
+          type="button"
+          class="mt-6 w-full rounded-2xl bg-amber-400 px-4 py-3.5 font-bold text-amber-950 transition hover:bg-amber-300"
+          @click="goToDashboard"
+        >
+          대시보드로 이동
+        </button>
+      </div>
+    </div>
   </section>
 </template>

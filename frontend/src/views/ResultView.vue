@@ -61,16 +61,18 @@ onUnmounted(() => window.clearTimeout(secondConfettiTimer));
         <p class="text-sm font-semibold text-rose-700">나를 챙겨준 마니또는</p>
         <p class="mt-2 text-2xl font-extrabold text-rose-600"><span class="text-3xl">{{ result.cared_for_me }}</span> 님이었습니다!</p>
       </div>
-      <div class="mt-3 rounded-2xl bg-amber-50 px-4 py-5">
-        <p class="text-sm font-semibold text-amber-700">내가 챙겨준 사람은</p>
-        <p class="mt-2 text-2xl font-extrabold text-amber-700"><span class="text-3xl">{{ result.i_cared_for }}</span> 님이었습니다!</p>
-      </div>
       <p class="mt-8 text-sm leading-6 text-slate-600">
         함께해 주셔서 고마워요!
       </p>
       <RouterLink
+        :to="{ name: 'team-leaderboard', params: { teamCode } }"
+        class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-700 transition hover:bg-violet-100"
+      >
+        최종 리더보드 보기
+      </RouterLink>
+      <RouterLink
         :to="{ name: 'dashboard' }"
-        class="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
+        class="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-800"
       >
         메인으로 돌아가기
       </RouterLink>
@@ -79,6 +81,12 @@ onUnmounted(() => window.clearTimeout(secondConfettiTimer));
       <img :src="waitingImage" alt="기다리는 마니" class="mx-auto w-24 object-contain" />
       <h1 class="mt-4 text-2xl font-bold text-slate-900">결과 공개를 기다려 주세요</h1>
       <p class="mt-4 text-sm leading-6 text-slate-600">{{ errorMessage }}</p>
+      <RouterLink
+        :to="{ name: 'team-leaderboard', params: { teamCode } }"
+        class="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-700 transition hover:bg-violet-100"
+      >
+        익명 리더보드 보기
+      </RouterLink>
     </div>
     <p v-else-if="errorMessage" class="w-full text-sm text-red-700">{{ errorMessage }}</p>
     <p v-else class="w-full text-sm text-slate-600">결과를 준비하고 있습니다.</p>

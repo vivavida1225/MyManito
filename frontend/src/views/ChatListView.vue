@@ -11,6 +11,18 @@ const isLoading = ref(false);
 const caredForRooms = computed(() => rooms.value.filter((room) => room.relationship_label === "내가 챙겨줄 사람"));
 const caringForMeRooms = computed(() => rooms.value.filter((room) => room.relationship_label === "나를 챙겨주는 마니또"));
 
+function displayRoomName(room) {
+  if (!room.counterpart_claimed) {
+    return room.counterpart_name || room.relationship_label;
+  }
+
+  if (room.counterpart_name && room.counterpart_nickname) {
+    return `${room.counterpart_name} (${room.counterpart_nickname})`;
+  }
+
+  return room.counterpart_name || room.counterpart_nickname || room.relationship_label;
+}
+
 async function loadRooms() {
   errorMessage.value = "";
   isLoading.value = true;
@@ -78,8 +90,8 @@ onMounted(loadRooms);
               />
 
               <div class="min-w-0 flex-1">
-                <p class="font-bold text-slate-800">{{ room.counterpart_name || room.relationship_label }}</p>
-                <p v-if="room.counterpart_claimed" class="mt-1 truncate text-sm text-slate-500">{{ room.counterpart_nickname }}</p>
+                <p class="font-bold text-slate-800">{{ displayRoomName(room) }}</p>
+                <p v-if="room.counterpart_claimed" class="mt-1 truncate text-sm text-slate-500">{{ room.latest_message_preview }}</p>
                 <p v-else class="mt-1 text-sm font-medium text-amber-600">상대방이 아직 확인하지 않았어요</p>
               </div>
 

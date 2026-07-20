@@ -78,7 +78,7 @@ const remainingTime = computed(() => {
   const days = Math.floor(minutes / (60 * 24));
   const hours = Math.floor((minutes % (60 * 24)) / 60);
   const remainingMinutes = minutes % 60;
-  return `${days ? `${days}일 ` : ""}${hours}시간 ${remainingMinutes}분 남음`;
+  return `${days ? `${days}일 ` : ""}${hours}시간 ${remainingMinutes}분`;
 });
 
 const endDateLabel = computed(() => {
@@ -104,6 +104,8 @@ async function loadTeamHome() {
       await router.replace({ name: "team-reveal", params: { teamCode: props.teamCode } });
       return;
     }
+
+    api.post(`/teams/${props.teamCode}/leaderboard/visit/`).catch(() => {});
 
     const [assignmentResult, countdownResult, roomResult, myTeamsResult] = await Promise.allSettled([
       api.get(`/teams/${props.teamCode}/my-assignment/`),
@@ -144,8 +146,8 @@ onUnmounted(() => window.clearInterval(countdownTimer));
   <section class="p-5 pb-10">
     <div class="flex items-start justify-between gap-4">
       <div>
-        <p class="text-sm font-bold text-amber-500">팀 코드 · {{ teamCode }}</p>
-        <h1 class="mt-1 text-2xl font-extrabold text-slate-800">우리 팀 마니또</h1>
+        <p class="text-sm font-bold text-amber-500">{{ teamCode }}</p>
+        <h1 class="mt-1 text-2xl font-extrabold text-slate-800">팀 대시보드</h1>
       </div>
       <button
         type="button"
@@ -171,12 +173,20 @@ onUnmounted(() => window.clearInterval(countdownTimer));
         </div>
       </div>
 
-      <div v-if="isClaimed" class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-        <p class="text-sm font-bold text-rose-500">내가 챙겨줄 사람</p>
-        <h2 class="mt-2 text-xl font-extrabold text-slate-800">
-          <span class="text-rose-600">{{ assignment.assigned_to.display_name }}</span> 님
-        </h2>
-        <p class="mt-2 text-sm leading-6 text-slate-500">작은 관심과 따뜻한 메시지로 마니또를 챙겨 주세요.</p>
+      <RouterLink
+        :to="{ name: 'team-leaderboard', params: { teamCode } }"
+        class="flex items-center justify-between rounded-3xl bg-violet-50 p-5 shadow-sm ring-1 ring-violet-100 transition hover:bg-violet-100"
+      >
+        <span>
+          <span class="block text-sm font-bold text-violet-600">우리 팀의 익명 게임</span>
+          <span class="mt-1 block text-lg font-extrabold text-slate-800">팀 랭킹 보기</span>
+        </span>
+        <span class="text-xl text-violet-600" aria-hidden="true">→</span>
+      </RouterLink>
+
+      <div v-if="team.rules" class="rounded-2xl border border-slate-200 px-4 py-3">
+        <p class="font-bold text-slate-700">📣우리 팀 규칙</p>
+        <p class="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{{ team.rules }}</p>
       </div>
 
       <div v-else class="rounded-3xl bg-white p-5 text-center shadow-sm ring-1 ring-slate-100">
@@ -228,11 +238,6 @@ onUnmounted(() => window.clearInterval(countdownTimer));
           <p v-else class="rounded-2xl bg-slate-50 px-4 py-4 text-sm text-slate-500">나를 챙겨줄 마니또의 채팅방을 준비하고 있어요.</p>
         </div>
         <p v-else class="mt-4 rounded-2xl bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-500">본인 확인을 마치면 두 개의 익명 채팅방으로 바로 이동할 수 있어요.</p>
-      </div>
-
-      <div v-if="team.rules" class="rounded-2xl border border-slate-200 px-4 py-3">
-        <p class="font-bold text-slate-700">우리 팀 규칙</p>
-        <p class="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{{ team.rules }}</p>
       </div>
     </div>
 

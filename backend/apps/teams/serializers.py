@@ -140,3 +140,16 @@ class TeamPlannedEndSerializer(serializers.Serializer):
 
 class TeamRevealModeSerializer(serializers.Serializer):
     reveal_mode = serializers.ChoiceField(choices=Team.RevealMode.values)
+
+
+class TeamRulesSerializer(serializers.Serializer):
+    rules = serializers.CharField(allow_blank=True, max_length=10000, trim_whitespace=False)
+
+
+class TeamAnnouncementSerializer(serializers.Serializer):
+    message = serializers.CharField(max_length=255, trim_whitespace=True)
+
+    def validate_message(self, value):
+        if not value:
+            raise serializers.ValidationError("알림 내용을 입력해 주세요.")
+        return value

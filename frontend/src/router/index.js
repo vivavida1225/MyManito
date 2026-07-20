@@ -3,6 +3,8 @@ import { createRouter, createWebHistory } from "vue-router";
 import { pinia } from "../stores";
 import { useAuthStore } from "../stores/auth";
 
+const REDIRECT_PATH_KEY = "redirectPath";
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -16,7 +18,6 @@ const router = createRouter({
       path: "/auth/kakao/callback",
       name: "kakao-callback",
       component: () => import("../views/KakaoCallbackView.vue"),
-      meta: { guestOnly: true },
     },
     {
       path: "/dashboard",
@@ -28,6 +29,12 @@ const router = createRouter({
       path: "/notifications",
       name: "notifications",
       component: () => import("../views/NotificationsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/help",
+      name: "help",
+      component: () => import("../views/HelpView.vue"),
       meta: { requiresAuth: true },
     },
     {
@@ -53,6 +60,13 @@ const router = createRouter({
       path: "/teams/:teamCode/claim",
       name: "participant-claim",
       component: () => import("../views/ParticipantClaimView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
+      path: "/teams/:teamCode/leaderboard",
+      name: "team-leaderboard",
+      component: () => import("../views/LeaderboardView.vue"),
       meta: { requiresAuth: true },
       props: true,
     },
@@ -106,9 +120,9 @@ router.beforeEach((to) => {
   auth.initialize();
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    localStorage.setItem(REDIRECT_PATH_KEY, to.fullPath);
     return {
       name: "home",
-      query: { redirect: to.fullPath },
     };
   }
 

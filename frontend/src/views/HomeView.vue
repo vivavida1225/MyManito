@@ -6,7 +6,7 @@ import introducingImage from "../assets/mani_introducing.webp";
 
 const KAKAO_AUTHORIZE_URL = "https://kauth.kakao.com/oauth/authorize";
 const KAKAO_OAUTH_STATE_KEY = "mymanito.kakao_oauth_state";
-const POST_LOGIN_REDIRECT_KEY = "mymanito.post_login_redirect";
+const REDIRECT_PATH_KEY = "redirectPath";
 
 const route = useRoute();
 const loginError = ref("");
@@ -37,9 +37,7 @@ function loginWithKakao() {
   const redirect = getSafeRedirect(route.query.redirect);
   sessionStorage.setItem(KAKAO_OAUTH_STATE_KEY, state);
   if (redirect) {
-    sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, redirect);
-  } else {
-    sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    localStorage.setItem(REDIRECT_PATH_KEY, redirect);
   }
 
   const authorizationUrl = new URL(KAKAO_AUTHORIZE_URL);

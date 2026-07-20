@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import Participant, Team
+from .leaderboard_services import assign_leaderboard_profiles, generate_leaderboard_snapshot
 
 
 MAX_MATCHING_ATTEMPTS = 10_000
@@ -57,7 +58,9 @@ def create_team_with_matching(*, owner, validated_data):
         for name in participant_names
     ]
     participants = Participant.objects.bulk_create(participants)
+    assign_leaderboard_profiles(participants)
     assign_manitos(participants, team.reciprocal_ratio)
+    generate_leaderboard_snapshot(team)
 
     return team
 
@@ -164,6 +167,7 @@ def get_team_dashboard(team):
         "reveal_status": team.reveal_status,
         "planned_end_date": team.planned_end_date,
         "planned_end_timezone": team.planned_end_timezone,
+        "rules": team.rules,
         "total_count": total_count,
         "claimed_count": len(claimed_participants),
         "unclaimed_names": unclaimed_names,
@@ -291,6 +295,47 @@ def update_team_reveal_mode(*, team, reveal_mode):
 
 
 @transaction.atomic
+def update_team_rules(*, team, rules):
+    """진행 중인 팀의 참가자 안내 규칙을 수정한다."""
+    locked_team = Team.objects.select_for_update().get(pk=team.pk)
+    if locked_team.status != Team.Status.ACTIVE:
+        raise AdminAccessError("종료된 팀의 규칙은 수정할 수 없습니다.")
+
+    locked_team.rules = rules
+    locked_team.save(update_fields=["rules", "updated_at"])
+    return locked_team
+
+
+@transaction.atomic
+def create_team_announcement(*, team, message):
+    """진행 중인 팀의 Claim 완료 참여자에게 앱 내 공지를 보낸다."""
+    locked_team = Team.objects.select_for_update().get(pk=team.pk)
+    if locked_team.status != Team.Status.ACTIVE:
+        raise AdminAccessError("진행 중인 팀에만 알림을 보낼 수 있습니다.")
+
+    from apps.chat.models import Notification
+
+    recipients = (
+        Participant.objects.filter(team=locked_team, claimed_by__isnull=False)
+        .exclude(claimed_by=locked_team.owner)
+        .select_related("claimed_by")
+    )
+    notifications = [
+        Notification(
+            recipient=participant.claimed_by,
+            team=locked_team,
+            kind=Notification.Kind.TEAM_ANNOUNCEMENT,
+            title="팀 관리자 알림",
+            body=message,
+            data={"announcement": True},
+        )
+        for participant in recipients
+    ]
+    Notification.objects.bulk_create(notifications)
+    return len(notifications)
+
+
+@transaction.atomic
 def delete_team(*, team):
     """오생성 팀을 안전 조건 하에서 영구 삭제한다."""
     locked_team = Team.objects.select_for_update().get(pk=team.pk)
@@ -400,6 +445,7 @@ def end_team_and_retain_chat(*, team):
     if locked_team.status == Team.Status.ENDED:
         raise AdminAccessError("이미 종료된 팀입니다.")
 
+    generate_leaderboard_snapshot(locked_team)
     locked_team.status = Team.Status.ENDED
     locked_team.ended_at = timezone.now()
     locked_team.save(update_fields=["status", "ended_at", "updated_at"])

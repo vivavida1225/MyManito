@@ -26,6 +26,7 @@ function notificationIcon(kind) {
     PARTICIPANT_CLAIMED: "✅",
     DDAY: "📅",
     RESULT_AVAILABLE: "🎉",
+    TEAM_ANNOUNCEMENT: "📣",
   }[kind] || "🔔";
 }
 

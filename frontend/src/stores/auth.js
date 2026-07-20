@@ -23,7 +23,7 @@ export const useAuthStore = defineStore("auth", {
         return;
       }
 
-      const savedAuth = sessionStorage.getItem(STORAGE_KEY);
+      const savedAuth = localStorage.getItem(STORAGE_KEY) ?? sessionStorage.getItem(STORAGE_KEY);
 
       if (savedAuth) {
         try {
@@ -31,7 +31,10 @@ export const useAuthStore = defineStore("auth", {
           this.accessToken = accessToken ?? null;
           this.refreshToken = refreshToken ?? null;
           this.kakaoProfile = kakaoProfile ?? null;
+          this.persist();
+          sessionStorage.removeItem(STORAGE_KEY);
         } catch {
+          localStorage.removeItem(STORAGE_KEY);
           sessionStorage.removeItem(STORAGE_KEY);
         }
       }
@@ -61,7 +64,7 @@ export const useAuthStore = defineStore("auth", {
     },
 
     persist() {
-      sessionStorage.setItem(
+      localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
           accessToken: this.accessToken,
@@ -76,6 +79,7 @@ export const useAuthStore = defineStore("auth", {
       this.refreshToken = null;
       this.kakaoProfile = null;
       this.isInitialized = true;
+      localStorage.removeItem(STORAGE_KEY);
       sessionStorage.removeItem(STORAGE_KEY);
     },
   },

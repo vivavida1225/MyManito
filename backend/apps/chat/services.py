@@ -2,10 +2,12 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 
 import requests
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.services import KakaoAPIError, refresh_kakao_access_token
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 KAKAO_MEMO_SEND_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 ROOM_ID_PATTERN = re.compile(r"^(?P<first>\d+)-(?P<second>\d+)$")
 DEFAULT_ANONYMOUS_NICKNAMES = ("마니", "클로디", "마이마니", "마이클로디")
+CHAT_RETENTION_DAYS = 7
 
 
 class ChatRoomError(Exception):
@@ -47,6 +50,16 @@ def get_default_anonymous_nickname(participant):
 
 def get_anonymous_nickname(participant):
     return participant.anonymous_nickname or get_default_anonymous_nickname(participant)
+
+
+def is_chat_available(team):
+    if team.status == Team.Status.ACTIVE:
+        return True
+    return (
+        team.status == Team.Status.ENDED
+        and team.ended_at is not None
+        and team.ended_at + timedelta(days=CHAT_RETENTION_DAYS) > timezone.now()
+    )
 
 
 def get_chat_room_for_user(*, room_id, user):
@@ -80,6 +93,8 @@ def get_chat_room_for_user(*, room_id, user):
 
     if me.assigned_to_id != counterpart.id and counterpart.assigned_to_id != me.id:
         raise ChatRoomError("마니또 관계가 아닌 참여자와는 채팅할 수 없습니다.")
+    if not is_chat_available(me.team):
+        raise ChatRoomError("종료된 채팅방의 7일 보관 기간이 끝났습니다.")
 
     return ChatRoom(team=me.team, me=me, counterpart=counterpart)
 
@@ -93,6 +108,15 @@ def list_chat_rooms(user):
     )
     rooms = {}
     for me in my_participants:
+        if not is_chat_available(me.team):
+            continue
+        are_results_released = (
+            me.team.status == Team.Status.ENDED
+            and me.team.reveal_status in {
+                Team.RevealStatus.AUTO_RELEASED,
+                Team.RevealStatus.MANUAL_RELEASED,
+            }
+        )
         counterparts = []
         if me.assigned_to_id:
             counterparts.append((me.assigned_to, "내가 챙겨줄 사람"))
@@ -103,13 +127,30 @@ def list_chat_rooms(user):
             if room_id in rooms:
                 continue
             profile = ChatProfile.objects.filter(owner=counterpart, counterpart=me).first()
+            latest_message = (
+                Message.objects.filter(team=me.team)
+                .filter(
+                    Q(sender=me, recipient=counterpart)
+                    | Q(sender=counterpart, recipient=me)
+                )
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            if latest_message and latest_message.content:
+                latest_message_preview = latest_message.content
+            elif latest_message and latest_message.emoticon_key:
+                latest_message_preview = "이모티콘을 보냈어요."
+            elif latest_message and MessageAttachment.objects.filter(message=latest_message).exists():
+                latest_message_preview = "사진을 보냈어요."
+            else:
+                latest_message_preview = "아직 주고받은 메시지가 없어요."
             rooms[room_id] = {
                 "room_id": room_id,
                 "team_code": me.team.code,
                 "relationship_label": relationship_label,
                 "counterpart_name": (
                     counterpart.display_name
-                    if relationship_label == "내가 챙겨줄 사람"
+                    if relationship_label == "내가 챙겨줄 사람" or are_results_released
                     else None
                 ),
                 "counterpart_claimed": counterpart.claimed_by_id is not None,
@@ -118,6 +159,8 @@ def list_chat_rooms(user):
                 ),
                 "counterpart_profile_image_url": profile.image.url if profile and profile.image else None,
                 "counterpart_avatar_key": profile.avatar_key if profile else "default",
+                "latest_message_preview": latest_message_preview,
+                "latest_message_at": latest_message.created_at if latest_message else None,
                 "unread_count": Message.objects.filter(
                     team=me.team,
                     sender=counterpart,
@@ -125,17 +168,21 @@ def list_chat_rooms(user):
                     read_at__isnull=True,
                 ).count(),
             }
-    return list(rooms.values())
+    return sorted(
+        rooms.values(),
+        key=lambda room: (room["latest_message_at"] is not None, room["latest_message_at"]),
+        reverse=True,
+    )
 
 
 @transaction.atomic
-def create_message(*, room, content, image):
+def create_message(*, room, content, image, emoticon_key=""):
     """메시지와 첨부 이미지를 저장한 뒤, 커밋 성공 후 수신자 알림을 예약한다."""
     team = Team.objects.select_for_update().get(pk=room.team.id)
     me = Participant.objects.select_for_update().get(pk=room.me.id)
     counterpart = Participant.objects.select_for_update().get(pk=room.counterpart.id)
-    if team.status != Team.Status.ACTIVE:
-        raise ChatRoomError("종료되었거나 비활성화된 팀에서는 메시지를 보낼 수 없습니다.")
+    if not is_chat_available(team):
+        raise ChatRoomError("종료된 채팅방의 7일 보관 기간이 끝났습니다.")
     if me.claimed_by_id is None or counterpart.claimed_by_id is None:
         raise ChatRoomError("상대방이 아직 본인 확인을 완료하지 않았습니다.")
 
@@ -144,6 +191,7 @@ def create_message(*, room, content, image):
         sender=me,
         recipient=counterpart,
         content=content,
+        emoticon_key=emoticon_key,
     )
     if image:
         MessageAttachment.objects.create(message=message, image=image)
@@ -159,6 +207,9 @@ def create_message(*, room, content, image):
     )
 
     transaction.on_commit(lambda: notify_message_recipient(message.id))
+    from apps.teams.leaderboard_services import award_message_score
+
+    award_message_score(message=message, room_id=room.room_id)
     return message
 
 
@@ -171,6 +222,8 @@ def notify_message_recipient(message_id):
     """수신자의 나와의 채팅방에 발신자 정보를 숨긴 알림을 보낸다."""
     message = Message.objects.select_related("recipient__claimed_by").filter(pk=message_id).first()
     if not message or not message.recipient.claimed_by_id:
+        return False
+    if "talk_message" not in message.recipient.claimed_by.kakao_scopes:
         return False
 
     chat_url = f"{settings.MYMANITO_APP_URL.rstrip('/')}/chat/{make_room_id(message.sender_id, message.recipient_id)}"

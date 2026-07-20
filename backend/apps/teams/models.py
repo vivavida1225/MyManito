@@ -74,6 +74,10 @@ class Participant(models.Model):
         related_name="assigned_from",
     )
     assignment_viewed_at = models.DateTimeField(null=True, blank=True)
+    leaderboard_nickname = models.CharField(max_length=100, blank=True)
+    leaderboard_avatar_key = models.CharField(max_length=30, blank=True)
+    leaderboard_score = models.PositiveIntegerField(default=0)
+    last_visit_score_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -91,3 +95,34 @@ class Participant(models.Model):
 
     def __str__(self):
         return f"{self.team.code} - {self.display_name}"
+
+
+class ScoreEvent(models.Model):
+    """리더보드 점수의 서버 측 검증 이력."""
+
+    class Type(models.TextChoices):
+        CHAT_MESSAGE = "CHAT_MESSAGE", "채팅 전송"
+        CHAT_LIKE = "CHAT_LIKE", "좋아요"
+        TEAM_VISIT = "TEAM_VISIT", "팀 접속"
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="score_events")
+    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="score_events")
+    event_type = models.CharField(max_length=20, choices=Type.choices)
+    room_id = models.CharField(max_length=50, blank=True)
+    source_message = models.OneToOneField(
+        "chat.Message",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="score_event",
+    )
+    points = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+
+class LeaderboardSnapshot(models.Model):
+    """팀별로 사용자에게 공개되는 최신 순위 스냅샷."""
+
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, related_name="leaderboard_snapshot")
+    rankings = models.JSONField(default=list)
+    generated_at = models.DateTimeField()

@@ -14,7 +14,6 @@ class KakaoLoginViewTests(TestCase):
     @patch(
         "apps.accounts.views.fetch_kakao_scopes",
         return_value=[
-            "talk_message",
             "profile_nickname",
             "profile_image",
             "account_email",
@@ -41,7 +40,7 @@ class KakaoLoginViewTests(TestCase):
             "expires_in": 3600,
         },
     )
-    def test_issues_service_jwt_without_exposing_kakao_tokens(self, *_mocks):
+    def test_issues_service_jwt_without_talk_message_consent(self, *_mocks):
         response = APIClient().post(
             "/api/accounts/kakao/login/",
             {"authorization_code": "authorization-code"},
@@ -52,6 +51,7 @@ class KakaoLoginViewTests(TestCase):
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
         self.assertNotIn("kakao_access_token", response.data)
+        self.assertNotIn("talk_message", response.data["user"]["kakao_scopes"])
         user = User.objects.get()
         self.assertEqual(user.kakao_nickname, "마니또")
         self.assertEqual(user.email, "manito@example.com")

@@ -15,6 +15,25 @@
 
         <nav class="flex items-center gap-1" aria-label="주요 메뉴">
           <RouterLink
+            :to="{ name: 'help' }"
+            class="relative rounded-full p-2 transition hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            :class="needsTalkMessageConsent ? 'text-amber-600' : 'text-slate-600'"
+            :aria-label="needsTalkMessageConsent ? '카카오톡 알림 설정이 필요합니다. 서비스 이용 가이드' : '서비스 이용 가이드'"
+          >
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M9.7 9a2.4 2.4 0 1 1 4.1 1.7c-.9.8-1.8 1.3-1.8 2.8" />
+              <circle cx="12" cy="17" r="1" fill="currentColor" stroke="none" />
+            </svg>
+            <span
+              v-if="needsTalkMessageConsent"
+              class="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[10px] font-extrabold text-amber-950 ring-2 ring-white"
+              aria-hidden="true"
+            >
+              !
+            </span>
+          </RouterLink>
+          <RouterLink
             :to="{ name: 'notifications' }"
             class="relative rounded-full p-2 text-slate-600 transition hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400"
             aria-label="알림함"
@@ -57,6 +76,9 @@ import { useAuthStore } from "./stores/auth";
 const route = useRoute();
 const auth = useAuthStore();
 const showNavbar = computed(() => route.meta.requiresAuth);
+const needsTalkMessageConsent = computed(
+  () => !auth.kakaoProfile?.kakao_scopes?.includes("talk_message"),
+);
 const unreadNotificationCount = ref(0);
 let notificationPoller;
 

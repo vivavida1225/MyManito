@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 import json
 import os
 import tempfile
@@ -10,7 +10,9 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.teams.models import Participant, Team
+from apps.teams.models import Participant, ScoreEvent, Team
+from apps.teams.leaderboard_config import CHAT_MESSAGE_POINTS
+from apps.teams.leaderboard_services import award_message_score
 from apps.teams.services import create_team_with_matching
 
 from .models import ChatProfile, Message, MessageAttachment, Notification
@@ -51,6 +53,12 @@ class ChatApiTests(TestCase):
         self.room_id = make_room_id(self.owner_participant.id, self.counterpart.id)
 
     def test_room_list_marks_unclaimed_counterparts(self):
+        Message.objects.create(
+            team=self.team,
+            sender=self.counterpart,
+            recipient=self.owner_participant,
+            content="가장 최근 메시지",
+        )
         client = APIClient()
         client.force_authenticate(self.owner)
 
@@ -59,7 +67,24 @@ class ChatApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         cared_for_room = next(room for room in response.data["rooms"] if room["room_id"] == self.room_id)
         self.assertEqual(cared_for_room["counterpart_name"], self.counterpart.display_name)
+        self.assertEqual(cared_for_room["latest_message_preview"], "가장 최근 메시지")
         self.assertTrue(any(not room["counterpart_claimed"] for room in response.data["rooms"]))
+
+    def test_room_list_reveals_counterpart_name_after_results_are_released(self):
+        cared_for_me = self.owner_participant.assigned_from.get()
+        self.team.status = Team.Status.ENDED
+        self.team.ended_at = timezone.now()
+        self.team.reveal_status = Team.RevealStatus.AUTO_RELEASED
+        self.team.save(update_fields=["status", "ended_at", "reveal_status"])
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        response = client.get("/api/chat/rooms/")
+
+        self.assertEqual(response.status_code, 200)
+        room_id = make_room_id(self.owner_participant.id, cared_for_me.id)
+        caring_for_me_room = next(room for room in response.data["rooms"] if room["room_id"] == room_id)
+        self.assertEqual(caring_for_me_room["counterpart_name"], cared_for_me.display_name)
 
     @patch("apps.chat.services.notify_message_recipient")
     def test_send_and_poll_messages_in_an_authorized_room(self, _notify_mock):
@@ -83,6 +108,96 @@ class ChatApiTests(TestCase):
         self.assertEqual(poll_response.data["messages"], [])
         self.assertEqual(poll_response.data["room"]["team_code"], self.team.code)
         self.assertEqual(poll_response.data["room"]["my_anonymous_nickname"], "")
+
+    @patch("apps.chat.services.notify_message_recipient")
+    def test_ended_team_keeps_chat_available_for_seven_days(self, _notify_mock):
+        Team.objects.filter(pk=self.team.pk).update(status=Team.Status.ENDED, ended_at=timezone.now())
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        response = client.post(
+            f"/api/chat/{self.room_id}/messages/",
+            {"content": "게임이 끝난 뒤에도 남기는 메시지"},
+            format="json",
+        )
+        room_response = client.get(f"/api/chat/{self.room_id}/messages/")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(room_response.status_code, 200)
+        self.assertEqual(room_response.data["room"]["team_status"], Team.Status.ENDED)
+
+    def test_like_has_room_cooldown_and_is_blocked_after_game_end(self):
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        first_response = client.post(f"/api/chat/{self.room_id}/like/")
+        second_response = client.post(f"/api/chat/{self.room_id}/like/")
+        Team.objects.filter(pk=self.team.pk).update(status=Team.Status.ENDED, ended_at=timezone.now())
+        ended_response = client.post(f"/api/chat/{self.room_id}/like/")
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertFalse(first_response.data["available"])
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.data["next_available_at"], first_response.data["next_available_at"])
+        self.assertEqual(ended_response.status_code, 400)
+        self.assertEqual(ScoreEvent.objects.filter(event_type=ScoreEvent.Type.CHAT_LIKE).count(), 1)
+
+    @patch("apps.teams.leaderboard_services.timezone.now")
+    def test_message_score_obeys_cooldown_daily_limit_and_end_state(self, mock_now):
+        mock_now.return_value = timezone.make_aware(datetime(2026, 7, 21, 12, 0))
+        caregiver = self.owner_participant
+        cared_for = caregiver.assigned_to
+        room_id = make_room_id(caregiver.id, cared_for.id)
+        now = timezone.now()
+
+        for index in range(6):
+            message = Message.objects.create(
+                team=self.team,
+                sender=cared_for,
+                recipient=caregiver,
+                content=f"점수 메시지 {index}",
+            )
+            self.assertTrue(award_message_score(message=message, room_id=room_id))
+            ScoreEvent.objects.filter(source_message=message).update(created_at=now - timedelta(minutes=31))
+
+        over_limit_message = Message.objects.create(team=self.team, sender=cared_for, recipient=caregiver, content="일일 제한")
+        self.assertFalse(award_message_score(message=over_limit_message, room_id=room_id))
+        cared_for.refresh_from_db()
+        self.assertEqual(cared_for.leaderboard_score, CHAT_MESSAGE_POINTS * 3 * 6)
+
+        Team.objects.filter(pk=self.team.pk).update(status=Team.Status.ENDED, ended_at=timezone.now())
+        ended_message = Message.objects.create(team=self.team, sender=cared_for, recipient=caregiver, content="종료 후")
+        self.assertFalse(award_message_score(message=ended_message, room_id=room_id))
+
+    @patch("apps.chat.services.notify_message_recipient")
+    def test_sends_emoticon_key_without_uploading_an_attachment(self, _notify_mock):
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        response = client.post(
+            f"/api/chat/{self.room_id}/messages/",
+            {"emoticon_key": "mani-0"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["emoticon_key"], "mani-0")
+        self.assertFalse(MessageAttachment.objects.filter(message_id=response.data["id"]).exists())
+
+    def test_hides_chat_rooms_after_the_seven_day_retention_period(self):
+        Team.objects.filter(pk=self.team.pk).update(
+            status=Team.Status.ENDED,
+            ended_at=timezone.now() - timedelta(days=7, seconds=1),
+        )
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        list_response = client.get("/api/chat/rooms/")
+        room_response = client.get(f"/api/chat/{self.room_id}/messages/")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertFalse(any(room["room_id"] == self.room_id for room in list_response.data["rooms"]))
+        self.assertEqual(room_response.status_code, 403)
 
     def test_room_rejects_user_who_did_not_claim_a_participant(self):
         outsider = User.objects.create(
@@ -180,6 +295,7 @@ class KakaoNotificationTests(TestCase):
             username="recipient",
             kakao_id=5000,
             kakao_nickname="받는이",
+            kakao_scopes=["talk_message"],
             kakao_access_token="recipient-token",
             kakao_refresh_token="recipient-refresh-token",
         )
@@ -215,6 +331,34 @@ class KakaoNotificationTests(TestCase):
         expected_chat_url = f"https://mymanito.wara.synology.me/chat/{make_room_id(sender_participant.id, recipient_participant.id)}"
         self.assertEqual(template["link"]["web_url"], expected_chat_url)
         self.assertEqual(template["link"]["mobile_web_url"], expected_chat_url)
+
+    @patch("apps.chat.services.requests.post")
+    def test_skips_kakao_notification_without_talk_message_consent(self, mock_post):
+        sender = User.objects.create(username="sender-no-consent", kakao_id=4001, kakao_nickname="보낸이")
+        recipient = User.objects.create(username="recipient-no-consent", kakao_id=5001, kakao_nickname="받는이")
+        team = create_team_with_matching(
+            owner=sender,
+            validated_data={
+                "code": "notification-no-consent-team",
+                "rules": "",
+                "reciprocal_ratio": 100,
+                "is_participating": True,
+                "parsed_participant_names": ["보낸이", "받는이"],
+            },
+        )
+        sender_participant = Participant.objects.get(team=team, display_name="보낸이")
+        recipient_participant = Participant.objects.get(team=team, display_name="받는이")
+        recipient_participant.claimed_by = recipient
+        recipient_participant.save(update_fields=["claimed_by"])
+        message = Message.objects.create(
+            team=team,
+            sender=sender_participant,
+            recipient=recipient_participant,
+            content="새 메시지",
+        )
+
+        self.assertFalse(notify_message_recipient(message.id))
+        mock_post.assert_not_called()
 
 
 class ChatCleanupSchedulerTests(TestCase):

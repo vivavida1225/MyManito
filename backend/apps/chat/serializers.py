@@ -4,6 +4,18 @@ from .models import Message
 from .services import get_anonymous_nickname
 
 
+EMOTICON_KEYS = (
+    *(f"mani-{index}" for index in range(9)),
+    *(f"clodi-{index}" for index in range(9)),
+    "mani-celebrating",
+    "mani-introducing-only",
+    "mani-messaging",
+    "mani-running-card",
+    "mani-thinking",
+    "mani-waiting",
+)
+
+
 class MessageListQuerySerializer(serializers.Serializer):
     since = serializers.DateTimeField(required=False)
 
@@ -11,10 +23,13 @@ class MessageListQuerySerializer(serializers.Serializer):
 class MessageCreateSerializer(serializers.Serializer):
     content = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True)
     image = serializers.ImageField(required=False)
+    emoticon_key = serializers.ChoiceField(choices=EMOTICON_KEYS, required=False)
 
     def validate(self, attrs):
-        if not attrs.get("content") and not attrs.get("image"):
-            raise serializers.ValidationError("텍스트 또는 이미지 중 하나를 입력해 주세요.")
+        if not attrs.get("content") and not attrs.get("image") and not attrs.get("emoticon_key"):
+            raise serializers.ValidationError("텍스트, 이미지 또는 이모티콘 중 하나를 입력해 주세요.")
+        if attrs.get("image") and attrs.get("emoticon_key"):
+            raise serializers.ValidationError("이미지와 이모티콘은 함께 전송할 수 없습니다.")
         return attrs
 
 
@@ -40,6 +55,7 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "content",
+            "emoticon_key",
             "created_at",
             "read_at",
             "is_mine",

@@ -22,6 +22,12 @@ const anonymousNickname = ref("");
 const anonymousNicknameSaved = ref(false);
 
 const myKakaoNickname = computed(() => auth.kakaoProfile?.nickname || "");
+const matchedParticipant = computed(
+  () => participants.value.find((participant) => participant.display_name === myKakaoNickname.value) || null,
+);
+const otherParticipants = computed(() =>
+  participants.value.filter((participant) => participant.id !== matchedParticipant.value?.id),
+);
 
 function teamPath(suffix = "") {
   return `/teams/${encodeURIComponent(teamCode.value.trim())}${suffix}`;
@@ -65,10 +71,7 @@ async function agreeAndLoadParticipants() {
 
     const response = await api.get(teamPath("/unclaimed/"));
     participants.value = response.data.participants;
-    selectedParticipant.value =
-      participants.value.find(
-        (participant) => participant.display_name === myKakaoNickname.value,
-      ) || null;
+    selectedParticipant.value = matchedParticipant.value;
 
     if (participants.value.length === 0) {
       errorMessage.value = "확인할 수 있는 미등록 이름이 없습니다.";
@@ -184,12 +187,24 @@ async function saveAnonymousNickname() {
     <div v-else-if="step === 'claim'" class="mt-6 space-y-4">
       <h2 class="text-lg font-bold text-slate-800">본인의 이름을 선택해 주세요</h2>
       <p class="text-sm leading-6 text-slate-500">선택을 완료하면 변경하기 어려우니 꼭 본인 이름인지 확인해 주세요.</p>
-      <p v-if="selectedParticipant && selectedParticipant.display_name === myKakaoNickname" class="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-        카카오 닉네임과 일치하는 이름을 찾았어요. 그래도 한 번 더 확인해 주세요!
-      </p>
-      <div class="grid gap-2">
+      <div v-if="matchedParticipant" class="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+        <p class="text-xs font-bold text-amber-700">카카오 닉네임과 일치하는 이름</p>
         <button
-          v-for="participant in participants"
+          type="button"
+          class="mt-2 flex w-full items-center justify-between rounded-xl bg-amber-400 px-4 py-3 text-left text-amber-950 transition hover:bg-amber-300 focus:outline-none focus:ring-4 focus:ring-amber-200"
+          @click="requestClaim(matchedParticipant)"
+        >
+          <span>
+            <span class="block text-lg font-extrabold">{{ matchedParticipant.display_name }}</span>
+            <span class="mt-1 block text-sm font-medium">님으로 계속하기</span>
+          </span>
+          <span class="text-2xl" aria-hidden="true">→</span>
+        </button>
+      </div>
+      <p v-if="otherParticipants.length" class="pt-2 text-sm font-bold text-slate-700">다른 이름으로 참여해야 하나요?</p>
+      <div v-if="otherParticipants.length" class="grid gap-2">
+        <button
+          v-for="participant in otherParticipants"
           :key="participant.id"
           type="button"
           class="rounded-xl border px-4 py-3 text-left font-bold transition"

@@ -23,6 +23,7 @@ class ChatConfig(AppConfig):
             return
 
         from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams
+        from apps.teams.leaderboard_services import generate_active_leaderboard_snapshots
 
         scheduler.add_job(
             cleanup_expired_attachments,
@@ -37,6 +38,14 @@ class ChatConfig(AppConfig):
             trigger="cron",
             minute=0,
             id="cleanup-expired-ended-teams",
+            replace_existing=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            generate_active_leaderboard_snapshots,
+            trigger="cron",
+            minute=0,
+            id="generate-active-leaderboard-snapshots",
             replace_existing=True,
             max_instances=1,
         )

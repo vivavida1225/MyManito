@@ -20,6 +20,7 @@ from .services import (
     get_or_create_chat_profile,
     list_chat_rooms,
 )
+from apps.teams.leaderboard_services import award_like_score
 
 
 class ChatRoomListView(APIView):
@@ -62,6 +63,7 @@ class ChatMessageView(APIView):
             {
                 "room": {
                     "team_code": room.team.code,
+                    "team_status": room.team.status,
                     "my_anonymous_nickname": room.me.anonymous_nickname,
                 },
                 "messages": MessageSerializer(
@@ -86,6 +88,7 @@ class ChatMessageView(APIView):
                 room=room,
                 content=serializer.validated_data.get("content", ""),
                 image=serializer.validated_data.get("image"),
+                emoticon_key=serializer.validated_data.get("emoticon_key", ""),
             )
         except ChatRoomError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
@@ -135,6 +138,22 @@ class ChatProfileView(APIView):
                 setattr(profile, field, serializer.validated_data[field])
         profile.save()
         return Response({"my_profile": _profile_payload(profile, room.me)})
+
+
+class ChatLikeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, room_id):
+        try:
+            room = get_chat_room_for_user(room_id=room_id, user=request.user)
+            _awarded, next_available_at = award_like_score(room=room)
+        except ChatRoomError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_403_FORBIDDEN)
+        except PermissionError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_403_FORBIDDEN)
+        except ValueError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"available": False, "next_available_at": next_available_at})
 
 
 class NotificationListView(APIView):

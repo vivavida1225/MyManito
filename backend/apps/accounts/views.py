@@ -17,7 +17,6 @@ from .services import (
 
 
 REQUIRED_KAKAO_SCOPES = {
-    "talk_message",
     "profile_nickname",
     "profile_image",
     "account_email",
@@ -76,6 +75,7 @@ class KakaoLoginView(APIView):
                     "kakao_id": user.kakao_id,
                     "nickname": user.kakao_nickname,
                     "profile_image_url": user.profile_image_url,
+                    "kakao_scopes": sorted(scopes),
                 },
             },
             status=status.HTTP_200_OK,

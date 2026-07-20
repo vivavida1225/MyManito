@@ -37,6 +37,8 @@ const showProfileSetup = ref(false);
 const profileError = ref("");
 const isSavingProfile = ref(false);
 const isEmoticonPickerOpen = ref(false);
+const isLiking = ref(false);
+const likeNextAvailableAt = ref(null);
 const emoticons = [
   ...DEFAULT_PROFILE_OPTIONS,
   { key: "mani-celebrating", label: "축하하는 마니", image: celebratingImage },
@@ -46,6 +48,7 @@ const emoticons = [
   { key: "mani-thinking", label: "생각하는 마니", image: thinkingImage },
   { key: "mani-waiting", label: "기다리는 마니", image: waitingImage },
 ];
+const emoticonImages = new Map(emoticons.map((emoticon) => [emoticon.key, emoticon.image]));
 let pollingTimer;
 
 const IMAGE_COMPRESSION_OPTIONS = {
@@ -111,6 +114,30 @@ function openSettings() {
   showProfileSetup.value = true;
 }
 
+function likeCooldownLabel() {
+  if (!likeNextAvailableAt.value) {
+    return "";
+  }
+  const remainingHours = Math.max(1, Math.ceil((new Date(likeNextAvailableAt.value).getTime() - Date.now()) / 3_600_000));
+  return `다음 좋아요는 ${remainingHours}시간 뒤에 가능해요`;
+}
+
+async function likeRoom() {
+  if (isLiking.value || roomInfo.value?.team_status !== "ACTIVE") {
+    return;
+  }
+  errorMessage.value = "";
+  isLiking.value = true;
+  try {
+    const response = await api.post(`/chat/${props.roomId}/like/`);
+    likeNextAvailableAt.value = response.data.next_available_at;
+  } catch (error) {
+    errorMessage.value = error.response?.data?.detail || "좋아요를 반영하지 못했습니다.";
+  } finally {
+    isLiking.value = false;
+  }
+}
+
 async function saveProfile({ nickname, avatarKey }) {
   if (!nickname) {
     profileError.value = "익명 닉네임을 입력해 주세요.";
@@ -157,7 +184,11 @@ async function selectImage(event) {
   }
 }
 
-async function postMessage({ messageContent = "", image = null, imageName = "" }) {
+function getEmoticonImage(emoticonKey) {
+  return emoticonImages.get(emoticonKey) || "";
+}
+
+async function postMessage({ messageContent = "", image = null, imageName = "", emoticonKey = "" }) {
   errorMessage.value = "";
   isSending.value = true;
   try {
@@ -167,6 +198,9 @@ async function postMessage({ messageContent = "", image = null, imageName = "" }
     }
     if (image) {
       formData.append("image", image, imageName || image.name || "manito-emoticon.webp");
+    }
+    if (emoticonKey) {
+      formData.append("emoticon_key", emoticonKey);
     }
 
     const response = await api.post(`/chat/${props.roomId}/messages/`, formData, {
@@ -216,17 +250,8 @@ async function sendEmoticon(emoticon) {
     return;
   }
 
-  try {
-    const response = await fetch(emoticon.image);
-    if (!response.ok) {
-      throw new Error("emoticon fetch failed");
-    }
-    const image = await response.blob();
-    if (await postMessage({ image, imageName: `${emoticon.key}.webp` })) {
-      isEmoticonPickerOpen.value = false;
-    }
-  } catch {
-    errorMessage.value = "이모티콘을 불러오지 못했습니다.";
+  if (await postMessage({ emoticonKey: emoticon.key })) {
+    isEmoticonPickerOpen.value = false;
   }
 }
 
@@ -254,6 +279,17 @@ onUnmounted(() => {
       <div class="ml-auto flex items-center gap-2">
         <button
           type="button"
+          class="rounded-full p-2 transition disabled:opacity-40"
+          :class="likeNextAvailableAt ? 'bg-rose-100 text-rose-500' : 'bg-amber-50 text-slate-600 hover:bg-rose-50 hover:text-rose-500'"
+          :aria-label="likeNextAvailableAt ? '좋아요를 눌렀습니다' : '좋아요 보내기'"
+          :title="likeCooldownLabel() || '좋아요 보내기'"
+          :disabled="isLiking || roomInfo?.team_status !== 'ACTIVE'"
+          @click="likeRoom"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" :fill="likeNextAvailableAt ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.8 4.6a5.4 5.4 0 0 0-7.6 0L12 5.8l-1.2-1.2a5.4 5.4 0 0 0-7.6 7.6L12 21l8.8-8.8a5.4 5.4 0 0 0 0-7.6Z" /></svg>
+        </button>
+        <button
+          type="button"
           class="rounded-full bg-amber-50 p-2 text-slate-600 hover:bg-amber-100 disabled:opacity-40"
           aria-label="내 익명 프로필 설정"
           :disabled="!chatProfile"
@@ -263,8 +299,15 @@ onUnmounted(() => {
         </button>
       </div>
     </header>
+    <p v-if="likeNextAvailableAt" class="shrink-0 bg-rose-50 px-4 py-2 text-center text-xs font-medium text-rose-600">{{ likeCooldownLabel() }}</p>
 
     <div ref="messageList" class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      <p
+        v-if="roomInfo?.team_status === 'ENDED'"
+        class="rounded-xl bg-amber-100 px-3 py-2 text-center text-xs leading-5 text-amber-900"
+      >
+        게임은 종료되었지만, 이 채팅방은 종료 후 7일간 유지돼요. 7일 뒤 채팅 내역과 함께 사라집니다.
+      </p>
       <p v-if="!messages.length && !isFetching" class="pt-8 text-center text-sm text-slate-500">
         첫 메시지를 보내 보세요.
       </p>
@@ -285,6 +328,12 @@ onUnmounted(() => {
               :src="message.image_url"
               alt="첨부 이미지"
               class="mb-2 max-h-64 max-w-full rounded-lg object-contain"
+            />
+            <img
+              v-else-if="message.emoticon_key"
+              :src="getEmoticonImage(message.emoticon_key)"
+              alt="이모티콘"
+              class="mb-1 max-h-40 max-w-full object-contain"
             />
             <p v-if="message.content" class="whitespace-pre-wrap">{{ message.content }}</p>
           </div>

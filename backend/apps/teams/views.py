@@ -10,16 +10,19 @@ from .serializers import (
     ClaimResetSerializer,
     ParticipantClaimSerializer,
     TeamCreateSerializer,
+    TeamAnnouncementSerializer,
     TeamDeleteSerializer,
     TeamEndSerializer,
     TeamPlannedEndSerializer,
     TeamRevealModeSerializer,
+    TeamRulesSerializer,
 )
 from .services import (
     AdminAccessError,
     ClaimError,
     MatchingError,
     claim_participant,
+    create_team_announcement,
     create_result_notifications,
     create_team_with_matching,
     delete_team,
@@ -32,7 +35,9 @@ from .services import (
     set_anonymous_nickname,
     update_team_planned_end,
     update_team_reveal_mode,
+    update_team_rules,
 )
+from .leaderboard_services import award_visit_score, leaderboard_payload
 
 
 class TeamCreateView(APIView):
@@ -117,6 +122,31 @@ class MyTeamListView(APIView):
 
     def get(self, request):
         return Response({"teams": get_my_teams(request.user)})
+
+
+class TeamLeaderboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, code):
+        team = _get_team(code)
+        if isinstance(team, Response):
+            return team
+        if team.owner_id != request.user.id and not Participant.objects.filter(team=team, claimed_by=request.user).exists():
+            return Response({"detail": "이 팀의 리더보드를 볼 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
+        return Response(leaderboard_payload(team=team, user=request.user))
+
+
+class TeamLeaderboardVisitView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, code):
+        team = _get_team(code)
+        if isinstance(team, Response):
+            return team
+        if team.owner_id != request.user.id and not Participant.objects.filter(team=team, claimed_by=request.user).exists():
+            return Response({"detail": "이 팀에 접속할 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
+        award_visit_score(team=team, user=request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class UnclaimedParticipantListView(APIView):
@@ -277,6 +307,42 @@ class TeamRevealModeView(APIView):
                 "reveal_status": team.reveal_status,
             }
         )
+
+
+class TeamRulesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, code):
+        team = _get_admin_team(request, code)
+        if isinstance(team, Response):
+            return team
+
+        serializer = TeamRulesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            team = update_team_rules(team=team, **serializer.validated_data)
+        except AdminAccessError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"rules": team.rules})
+
+
+class TeamAnnouncementView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, code):
+        team = _get_admin_team(request, code)
+        if isinstance(team, Response):
+            return team
+
+        serializer = TeamAnnouncementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            sent_count = create_team_announcement(team=team, **serializer.validated_data)
+        except AdminAccessError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"sent_count": sent_count}, status=status.HTTP_201_CREATED)
 
 
 class TeamCountdownView(APIView):

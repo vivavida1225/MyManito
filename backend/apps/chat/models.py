@@ -11,6 +11,7 @@ class Message(models.Model):
     sender = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="sent_messages")
     recipient = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="received_messages")
     content = models.TextField(blank=True)
+    emoticon_key = models.CharField(max_length=40, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     read_at = models.DateTimeField(null=True, blank=True)
     kakao_notified_at = models.DateTimeField(null=True, blank=True)
@@ -57,6 +58,7 @@ class Notification(models.Model):
         PARTICIPANT_CLAIMED = "PARTICIPANT_CLAIMED", "참여자 확인 완료"
         DDAY = "DDAY", "D-Day"
         RESULT_AVAILABLE = "RESULT_AVAILABLE", "결과 공개"
+        TEAM_ANNOUNCEMENT = "TEAM_ANNOUNCEMENT", "팀 공지"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="notifications")
