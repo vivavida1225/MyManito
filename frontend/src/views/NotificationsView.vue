@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import api from "../api";
@@ -110,6 +110,11 @@ async function clearNotifications() {
 
 onMounted(() => {
   loadNotifications();
+  window.addEventListener("realtime-notifications-changed", loadNotifications);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("realtime-notifications-changed", loadNotifications);
 });
 </script>
 

@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -16,12 +17,14 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
 ALLOWED_HOSTS = [host for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if host]
 
 INSTALLED_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "channels",
     "rest_framework",
     "apps.accounts.apps.AccountsConfig",
     "apps.teams.apps.TeamsConfig",
@@ -38,8 +41,25 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
-WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYERS = (
+    {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+    if "test" in sys.argv
+    else {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [
+                    {
+                        "address": os.environ.get("CHANNEL_REDIS_URL", "redis://redis:6379/0"),
+                        "socket_timeout": None,
+                    }
+                ]
+            },
+        }
+    }
+)
 
 TEMPLATES = [
     {

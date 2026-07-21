@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -6,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.push import send_web_push_async
+from apps.realtime.events import publish_user_events_on_commit
 from .models import FeedbackMessage, FeedbackThread, Notification, Message
 from .serializers import (
     ChatProfileUpdateSerializer,
@@ -90,15 +92,24 @@ class FeedbackMessageView(APIView):
 
         serializer = FeedbackMessageCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        message = FeedbackMessage.objects.create(thread=thread, sender=request.user, content=serializer.validated_data["content"])
-        FeedbackThread.objects.filter(pk=thread.pk).update(updated_at=message.created_at)
         recipient_id = thread.developer_id if request.user.id == thread.user_id else thread.user_id
-        send_web_push_async(
-            user_id=recipient_id,
-            title="새 개발자 피드백",
-            body="새 메시지가 도착했습니다.",
-            path=f"/feedback/{thread.id}",
-        )
+        with transaction.atomic():
+            message = FeedbackMessage.objects.create(thread=thread, sender=request.user, content=serializer.validated_data["content"])
+            FeedbackThread.objects.filter(pk=thread.pk).update(updated_at=message.created_at)
+            transaction.on_commit(
+                lambda: send_web_push_async(
+                    user_id=recipient_id,
+                    title="새 개발자 피드백",
+                    body="새 메시지가 도착했습니다.",
+                    path=f"/feedback/{thread.id}",
+                )
+            )
+            publish_user_events_on_commit(
+                [request.user.id, recipient_id],
+                "chat.message.created",
+                feedback_thread_id=thread.id,
+            )
+            publish_user_events_on_commit([request.user.id, recipient_id], "chat.rooms.changed")
         return Response(_feedback_message_payload(message, request.user, thread), status=status.HTTP_201_CREATED)
 
 
@@ -269,6 +280,7 @@ class NotificationReadView(APIView):
             notification.is_read = True
             notification.read_at = timezone.now()
             notification.save(update_fields=["is_read", "read_at"])
+            publish_user_events_on_commit([request.user.id], "notifications.changed")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -280,6 +292,8 @@ class NotificationReadAllView(APIView):
             is_read=True,
             read_at=timezone.now(),
         )
+        if marked_count:
+            publish_user_events_on_commit([request.user.id], "notifications.changed")
         return Response({"marked_count": marked_count})
 
 
@@ -288,6 +302,8 @@ class NotificationClearView(APIView):
 
     def delete(self, request):
         deleted_count, _ = Notification.objects.filter(recipient=request.user).delete()
+        if deleted_count:
+            publish_user_events_on_commit([request.user.id], "notifications.changed")
         return Response({"deleted_count": deleted_count})
 
 
@@ -341,9 +357,12 @@ def _ensure_d_day_notifications(user):
             },
         )
         if created:
-            send_web_push_async(
-                user_id=user.id,
-                title=notification.title,
-                body=notification.body,
-                path=f"/teams/{participant.team.code}",
+            transaction.on_commit(
+                lambda: send_web_push_async(
+                    user_id=user.id,
+                    title=notification.title,
+                    body=notification.body,
+                    path=f"/teams/{participant.team.code}",
+                )
             )
+            publish_user_events_on_commit([user.id], "notifications.changed")

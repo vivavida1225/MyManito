@@ -336,7 +336,8 @@ class TeamAdminLifecycleTests(TestCase):
 
     @patch("apps.accounts.push.threading.Thread")
     @patch("apps.teams.services.send_web_push_async")
-    def test_admin_can_change_reveal_mode_only_while_active(self, _push_mock, _thread_mock):
+    @patch("apps.realtime.events.publish_user_event")
+    def test_admin_can_change_reveal_mode_only_while_active(self, _push_mock, _thread_mock, _event_mock):
         update_response = self.client.patch(
             f"/api/teams/{self.team.code}/admin/reveal-mode/",
             {"reveal_mode": Team.RevealMode.ADMIN},
@@ -362,7 +363,8 @@ class TeamAdminLifecycleTests(TestCase):
         self.assertEqual(ended_update_response.status_code, 400)
 
     @patch("apps.accounts.push.threading.Thread")
-    def test_admin_can_update_rules_only_while_active(self, _thread_mock):
+    @patch("apps.realtime.events.publish_user_event")
+    def test_admin_can_update_rules_only_while_active(self, _thread_mock, _event_mock):
         update_response = self.client.patch(
             f"/api/teams/{self.team.code}/admin/rules/",
             {"rules": "1) 익명 지키기\n2) 즐겁게 참여하기"},
@@ -431,7 +433,8 @@ class TeamAdminLifecycleTests(TestCase):
 
     @patch("apps.accounts.push.threading.Thread")
     @patch("apps.teams.services.send_web_push_async")
-    def test_admin_reveal_mode_hides_participant_results_and_shows_admin_mapping(self, _push_mock, _thread_mock):
+    @patch("apps.realtime.events.publish_user_event")
+    def test_admin_reveal_mode_hides_participant_results_and_shows_admin_mapping(self, _push_mock, _thread_mock, _event_mock):
         self.team.reveal_mode = Team.RevealMode.ADMIN
         self.team.reveal_status = Team.RevealStatus.MANUAL_PENDING
         self.team.save(update_fields=["reveal_mode", "reveal_status"])

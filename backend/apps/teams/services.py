@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.push import send_web_push_async
+from apps.realtime.events import publish_user_events_on_commit
 from .models import Participant, Team
 from .leaderboard_services import assign_leaderboard_profiles, generate_leaderboard_snapshot
 
@@ -342,6 +343,10 @@ def create_team_announcement(*, team, message):
                 path=f"/teams/{locked_team.code}",
             )
         )
+    publish_user_events_on_commit(
+        [notification.recipient_id for notification in notifications],
+        "notifications.changed",
+    )
     return len(notifications)
 
 
@@ -406,6 +411,9 @@ def create_result_notifications(team):
                 path=f"/teams/{team.code}/reveal",
             )
         )
+    recipient_ids = [notification.recipient_id for notification in notifications]
+    publish_user_events_on_commit(recipient_ids, "notifications.changed")
+    publish_user_events_on_commit(recipient_ids, "chat.rooms.changed")
 
 
 def create_claim_notifications(*, team, participant, claiming_user):
@@ -446,6 +454,12 @@ def create_claim_notifications(*, team, participant, claiming_user):
                 path=f"/teams/{team.code}",
             )
         )
+    recipient_ids = [notification.recipient_id for notification in notifications]
+    publish_user_events_on_commit(recipient_ids, "notifications.changed")
+    publish_user_events_on_commit(
+        [claiming_user.id, *recipient_ids],
+        "chat.rooms.changed",
+    )
 
 
 @transaction.atomic
@@ -476,4 +490,8 @@ def end_team_and_retain_chat(*, team):
     locked_team.status = Team.Status.ENDED
     locked_team.ended_at = timezone.now()
     locked_team.save(update_fields=["status", "ended_at", "updated_at"])
+    publish_user_events_on_commit(
+        Participant.objects.filter(team=locked_team, claimed_by__isnull=False).values_list("claimed_by_id", flat=True),
+        "chat.rooms.changed",
+    )
     return locked_team

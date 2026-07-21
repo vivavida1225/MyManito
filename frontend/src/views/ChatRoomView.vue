@@ -53,7 +53,6 @@ const emoticons = [
   { key: "mani-waiting", label: "기다리는 마니", image: waitingImage },
 ];
 const emoticonImages = new Map(emoticons.map((emoticon) => [emoticon.key, emoticon.image]));
-let pollingTimer;
 
 const IMAGE_COMPRESSION_OPTIONS = {
   maxSizeMB: 1,
@@ -201,6 +200,28 @@ function getEmoticonImage(emoticonKey) {
   return emoticonImages.get(emoticonKey) || "";
 }
 
+function isSameMinute(leftCreatedAt, rightCreatedAt) {
+  return Math.floor(new Date(leftCreatedAt).getTime() / 60_000)
+    === Math.floor(new Date(rightCreatedAt).getTime() / 60_000);
+}
+
+function shouldShowMessageTime(messageIndex) {
+  const message = messages.value[messageIndex];
+  const nextMessage = messages.value[messageIndex + 1];
+
+  return !nextMessage
+    || message.is_mine !== nextMessage.is_mine
+    || !isSameMinute(message.created_at, nextMessage.created_at);
+}
+
+function formatMessageTime(createdAt) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(createdAt));
+}
+
 async function postMessage({ messageContent = "", image = null, imageName = "", emoticonKey = "" }) {
   errorMessage.value = "";
   isSending.value = true;
@@ -269,16 +290,23 @@ async function sendEmoticon(emoticon) {
   }
 }
 
+function handleRealtimeMessage(event) {
+  const { room_id: roomId, feedback_thread_id: feedbackThreadId } = event.detail;
+  if ((!props.isFeedback && roomId === props.roomId) || (props.isFeedback && String(feedbackThreadId) === props.roomId)) {
+    loadMessages();
+  }
+}
+
 onMounted(async () => {
   await loadMessages();
   if (!props.isFeedback) {
     await loadProfile();
   }
-  pollingTimer = window.setInterval(loadMessages, 3000);
+  window.addEventListener("realtime-chat-message", handleRealtimeMessage);
 });
 
 onUnmounted(() => {
-  window.clearInterval(pollingTimer);
+  window.removeEventListener("realtime-chat-message", handleRealtimeMessage);
 });
 </script>
 
@@ -328,30 +356,40 @@ onUnmounted(() => {
         첫 메시지를 보내 보세요.
       </p>
       <div
-        v-for="message in messages"
+        v-for="(message, messageIndex) in messages"
         :key="message.id"
         class="flex"
         :class="message.is_mine ? 'justify-end' : 'justify-start'"
       >
         <div class="max-w-[78%]">
           <p v-if="!message.is_mine" class="mb-1 text-xs font-medium text-slate-500">{{ message.sender_nickname }}</p>
-          <div
-            class="rounded-2xl px-3 py-2 text-sm leading-5"
-            :class="message.is_mine ? 'rounded-tr-sm bg-amber-300 text-slate-900' : 'rounded-tl-sm bg-white text-slate-800 shadow-sm'"
-          >
-            <img
-              v-if="message.image_url"
-              :src="message.image_url"
-              alt="첨부 이미지"
-              class="mb-2 max-h-64 max-w-full rounded-lg object-contain"
-            />
-            <img
-              v-else-if="message.emoticon_key"
-              :src="getEmoticonImage(message.emoticon_key)"
-              alt="이모티콘"
-              class="mb-1 max-h-40 max-w-full object-contain"
-            />
-            <p v-if="message.content" class="whitespace-pre-wrap">{{ message.content }}</p>
+          <div class="flex items-end gap-1" :class="message.is_mine ? 'justify-end' : 'justify-start'">
+            <time
+              v-if="shouldShowMessageTime(messageIndex)"
+              class="shrink-0 pb-0.5 text-[11px] leading-4 text-slate-400"
+              :class="message.is_mine ? 'order-first' : 'order-last'"
+              :datetime="message.created_at"
+            >
+              {{ formatMessageTime(message.created_at) }}
+            </time>
+            <div
+              class="rounded-2xl px-3 py-2 text-sm leading-5"
+              :class="message.is_mine ? 'rounded-tr-sm bg-amber-300 text-slate-900' : 'rounded-tl-sm bg-white text-slate-800 shadow-sm'"
+            >
+              <img
+                v-if="message.image_url"
+                :src="message.image_url"
+                alt="첨부 이미지"
+                class="mb-2 max-h-64 max-w-full rounded-lg object-contain"
+              />
+              <img
+                v-else-if="message.emoticon_key"
+                :src="getEmoticonImage(message.emoticon_key)"
+                alt="이모티콘"
+                class="mb-1 max-h-40 max-w-full object-contain"
+              />
+              <p v-if="message.content" class="whitespace-pre-wrap">{{ message.content }}</p>
+            </div>
           </div>
         </div>
       </div>

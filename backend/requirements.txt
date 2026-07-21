@@ -7,4 +7,5 @@ Pillow>=12.1,<13.0
 APScheduler>=3.11,<4.0
 firebase-admin>=6.8,<7.0
 pywebpush>=2.0,<3.0
-gunicorn>=23.0,<24.0
+channels[daphne]>=4.2,<5.0
+channels-redis>=4.2,<5.0

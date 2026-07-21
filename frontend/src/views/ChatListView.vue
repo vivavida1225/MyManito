@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import api from "../api";
 import { getDefaultProfileImage } from "../assets/profiles/index.js";
@@ -39,7 +39,14 @@ async function loadRooms() {
   }
 }
 
-onMounted(loadRooms);
+onMounted(() => {
+  loadRooms();
+  window.addEventListener("realtime-chat-rooms-changed", loadRooms);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("realtime-chat-rooms-changed", loadRooms);
+});
 </script>
 
 <template>

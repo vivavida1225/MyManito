@@ -14,6 +14,7 @@ from django.utils import timezone
 from apps.accounts.push import send_web_push
 from apps.accounts.models import User
 from apps.accounts.services import KakaoAPIError, refresh_kakao_access_token
+from apps.realtime.events import publish_user_events_on_commit
 from apps.teams.models import Participant, Team
 
 from .models import ChatProfile, FeedbackMessage, FeedbackThread, Message, MessageAttachment, Notification
@@ -259,6 +260,19 @@ def create_message(*, room, content, image, emoticon_key=""):
     )
 
     transaction.on_commit(lambda: notify_message_recipient_async(message.id))
+    publish_user_events_on_commit(
+        [me.claimed_by_id, counterpart.claimed_by_id],
+        "chat.message.created",
+        room_id=room.room_id,
+    )
+    publish_user_events_on_commit(
+        [me.claimed_by_id, counterpart.claimed_by_id],
+        "chat.rooms.changed",
+    )
+    publish_user_events_on_commit(
+        [counterpart.claimed_by_id],
+        "notifications.changed",
+    )
     from apps.teams.leaderboard_services import award_message_score
 
     award_message_score(message=message, room_id=room.room_id)

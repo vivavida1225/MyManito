@@ -81,15 +81,16 @@ import { useRoute } from "vue-router";
 import api from "./api";
 import navbarLogo from "./assets/MyManito_navbar.webp";
 import { useAuthStore } from "./stores/auth";
+import { useRealtimeStore } from "./stores/realtime";
 
 const route = useRoute();
 const auth = useAuthStore();
+const realtime = useRealtimeStore();
 const showNavbar = computed(() => route.meta.requiresAuth);
 const needsTalkMessageConsent = computed(
   () => !auth.kakaoProfile?.kakao_scopes?.includes("talk_message"),
 );
 const unreadNotificationCount = ref(0);
-let notificationPoller;
 
 async function loadUnreadNotificationCount() {
   if (!auth.isAuthenticated) {
@@ -107,13 +108,15 @@ async function loadUnreadNotificationCount() {
 
 onMounted(() => {
   loadUnreadNotificationCount();
-  notificationPoller = window.setInterval(loadUnreadNotificationCount, 15_000);
+  realtime.start();
   window.addEventListener("notifications-updated", loadUnreadNotificationCount);
+  window.addEventListener("realtime-notifications-changed", loadUnreadNotificationCount);
 });
 
 onUnmounted(() => {
-  window.clearInterval(notificationPoller);
+  realtime.stop();
   window.removeEventListener("notifications-updated", loadUnreadNotificationCount);
+  window.removeEventListener("realtime-notifications-changed", loadUnreadNotificationCount);
 });
 
 watch(() => route.fullPath, loadUnreadNotificationCount);

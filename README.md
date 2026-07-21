@@ -24,7 +24,7 @@ MyManito는 이 문제를 해결하기 위해 만들었습니다.
 - 관리자 본인 참여 지원 및 Claim 진행률·미확인자·오매칭 초기화 관리
 - 종료 예정일 D-Day, 자동 공개·관리자 외부 공개 방식 설정
 - 관계별 1:1 익명 채팅, 읽음 처리, 이미지 압축 전송, 이모티콘 전송
-- 3초 간격 HTTP Short Polling과 카카오톡 ‘나와의 채팅방’ 메시지 알림
+- 실시간 채팅·앱 내 알림과 Android Chrome FCM, iPhone · iPad 홈 화면 Web Push, 카카오톡 ‘나와의 채팅방’ 알림
 - 팀별 익명 닉네임·프로필 설정, 기본 마니·클로디 프로필 제공
 - 팀별 게임 전용 프로필과 리더보드: 채팅·좋아요·팀 접속 활동을 서버에서 점수화하고, 매시 정각 순위를 갱신
 - 상위 3명 포디움과 4~123위 목록, 결과 공개 뒤 실제 이름·최종 점수 공개
@@ -80,7 +80,7 @@ MyManito는 이 문제를 해결하기 위해 만들었습니다.
 | 인증·알림 | Kakao OAuth, Kakao Talk Message API |
 | 데이터·파일 | SQLite, Pillow, 로컬 미디어 볼륨 |
 | 작업 자동화 | APScheduler |
-| 배포 | Docker Compose, Gunicorn, Nginx, Synology NAS |
+| 실시간·배포 | Django Channels, Redis, Daphne, Docker Compose, Nginx, Synology NAS |
 
 ## 아키텍처
 
@@ -89,16 +89,29 @@ Browser (Vue 3)
         │ HTTPS
         ▼
 Nginx ──────────────► /media 직접 서빙
-        │ /api
+        │ /api, /ws
         ▼
-Gunicorn + Django REST Framework
+Daphne ASGI + Django REST Framework + Channels
+        ├── Redis 채널 레이어 (Compose 내부 전용)
         ├── SQLite
         ├── 로컬 media 볼륨
         ├── Kakao OAuth / Talk Message API
         └── APScheduler (보존 기간 정리)
 ```
 
-WebSocket·Redis·Celery 대신 **3초 Short Polling**을 사용해, Synology NAS에서도 적은 컨테이너로 가볍게 운영할 수 있도록 구성했습니다.
+브라우저는 `/ws/realtime/` 단일 WebSocket으로 사용자별 갱신 신호만 수신하고, 기존 REST API로 최신 데이터를 다시 읽습니다. Redis는 Compose 내부 채널 레이어 전용이며 영속 볼륨이나 외부 포트가 없습니다. 메시지·읽음 같은 변경 요청은 기존 HTTP API 인증과 권한 검사를 그대로 사용합니다.
+
+### 실시간 채팅·알림
+
+WebSocket은 수신 전용이다. 메시지 전송, 읽음 처리 등 데이터 변경은 기존 REST API로 요청하고, 서버는 DB 커밋이 완료된 뒤 필요한 사용자에게만 갱신 신호를 보낸다. 이벤트에 메시지·알림 전체 데이터를 싣지 않으므로, 수신한 화면은 기존 조회 API를 호출해 최신 상태를 반영한다.
+
+| 이벤트 | 수신 후 동작 |
+| --- | --- |
+| `chat.message.created` | 해당 채팅방 또는 피드백방의 `since` 기반 메시지 API 재조회 |
+| `chat.rooms.changed` | 채팅방 목록 재조회(미리보기·안 읽음 수 반영) |
+| `notifications.changed` | 전역 알림 배지와 알림함 재조회 |
+
+브라우저는 `Sec-WebSocket-Protocol`에 `mymanito-v1`과 서비스 JWT를 함께 전달한다. 서버는 유효한 서비스 JWT만 허용하고, 연결을 `user.<id>` 그룹에 등록한다. 로그인·access 토큰 갱신 시 연결하며 로그아웃 시 즉시 종료한다. 연결이 끊기면 최대 30초의 지수 백오프로 재시도하고, 재연결되면 채팅방·알림 상태를 한 번 동기화한다. WebSocket이 끊긴 동안에는 마지막 조회 상태와 화면의 수동 새로고침만 제공하며 숨은 폴링은 사용하지 않는다.
 
 ## 익명성 및 데이터 보존 정책
 
@@ -126,6 +139,7 @@ Copy-Item frontend/.env.example frontend/.env
 | 파일 | 변수 | 설명 |
 | --- | --- | --- |
 | `backend/.env` | `DJANGO_SECRET_KEY` | Django 비밀 키 |
+| `backend/.env` | `CHANNEL_REDIS_URL` | Channels Redis 주소 (`redis://redis:6379/0`) |
 | `backend/.env` | `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` | 카카오 OAuth 설정 |
 | `backend/.env` | `KAKAO_REDIRECT_URI` | 카카오 로그인 콜백 주소 |
 | `backend/.env` | `MYMANITO_APP_URL` | 카카오 메시지 링크에 사용할 서비스 주소 |
@@ -133,21 +147,36 @@ Copy-Item frontend/.env.example frontend/.env
 | `backend/.env` | `IOS_WEB_PUSH_VAPID_PRIVATE_KEY`, `IOS_WEB_PUSH_VAPID_SUBJECT` | iOS 표준 Web Push VAPID 비공개 키와 연락처(서버 전용) |
 | `frontend/.env` | `VITE_KAKAO_REST_API_KEY` | 프론트엔드 카카오 REST API 키 |
 | `frontend/.env` | `VITE_API_BASE_URL` | API 기본 경로 |
+| `frontend/.env` | `VITE_REALTIME_URL` | 선택 사항. 비우면 현재 도메인의 `/ws/realtime/` 자동 사용 |
+| `frontend/.env` | `VITE_FIREBASE_*`, `VITE_FIREBASE_VAPID_KEY` | Android Chrome FCM용 Firebase 웹 공개 설정과 VAPID 공개 키 |
 | `frontend/.env` | `VITE_IOS_WEB_PUSH_VAPID_PUBLIC_KEY` | iOS VAPID 비공개 키와 쌍인 공개 키 |
 
 카카오 개발자 콘솔에서 `talk_message` 동의 항목과 등록된 Redirect URI를 함께 설정해야 메시지 알림을 받을 수 있습니다.
 
-### Firebase 기기 알림 설정
+### 기기 푸시 알림 설정 (Android · iPhone/iPad)
 
-제공된 Firebase 웹 설정과 VAPID 공개 키는 프론트엔드에 연결되어 있습니다. 실제 FCM 발송에는 공개 웹 설정과 별도로 **Firebase 서비스 계정 비공개 키**가 필요합니다. Firebase Console의 **프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성**에서 JSON을 내려받아 한 줄 JSON으로 만든 뒤 `backend/.env`의 `FIREBASE_SERVICE_ACCOUNT_JSON`에 넣으세요. 이 값은 절대로 `frontend/.env`나 저장소에 넣으면 안 됩니다.
+상단 톱니바퀴의 **알림 설정**에서 현재 기기를 선택한 뒤 `이 기기 알림 켜기`를 누르면 브라우저 권한을 요청하고 기기를 등록합니다. 기기 종류는 사용자별로 저장되며, 서버는 등록된 종류에 따라 Android에는 FCM, iPhone · iPad에는 표준 Web Push로 발송합니다. 새 익명 메시지, 참여자 본인 확인, D-Day, 관리자 공지, 결과 공개 같은 앱 내 알림이 생성될 때 기기 푸시도 백그라운드에서 함께 발송됩니다.
 
-배포 URL은 HTTPS여야 합니다. 배포 후 상단 설정 아이콘에서 Android를 선택하고 `이 기기 알림 켜기`를 누르면 Chrome FCM 알림을 등록합니다. 새 메시지, 참여 확인, D-Day, 관리자 공지, 결과 공개가 발생할 때 앱 내 알림과 기기 푸시가 함께 전송됩니다.
+| 기기 | 지원 조건 | 발송 방식 | 사용자 설정 순서 |
+| --- | --- | --- | --- |
+| Android | HTTPS로 접속한 Chrome | Firebase Cloud Messaging(FCM) | 설정에서 **Android** 선택 → `이 기기 알림 켜기` → Chrome 알림 허용 |
+| iPhone · iPad | iOS 16.4 이상, 홈 화면에 설치한 웹 앱 | 표준 Web Push(VAPID) | Safari 또는 Chrome 공유 메뉴에서 **홈 화면에 추가** → 홈 화면의 MyManito 아이콘으로 열기 → 설정에서 **iPhone · iPad** 선택 → 알림 허용 |
 
-### iPhone · iPad 기기 알림 설정
+#### Android Chrome FCM
 
-iOS 16.4 이상은 Firebase FCM이 아닌 표준 Web Push를 사용합니다. VAPID 키 쌍을 생성해 비공개 키는 `backend/.env`의 `IOS_WEB_PUSH_VAPID_PRIVATE_KEY`, 공개 키는 `frontend/.env`의 `VITE_IOS_WEB_PUSH_VAPID_PUBLIC_KEY`에 넣고, `IOS_WEB_PUSH_VAPID_SUBJECT`에는 운영자 연락처(예: `mailto:admin@example.com`)를 설정하세요. Firebase VAPID 키와 iOS VAPID 키는 별개입니다.
+프론트엔드의 `VITE_FIREBASE_*`, `VITE_FIREBASE_VAPID_KEY`는 브라우저에 전달되는 Firebase 웹 공개 설정입니다. 실제 FCM 발송에는 별도로 **Firebase 서비스 계정 비공개 키**가 필요합니다. Firebase Console의 **프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성**에서 JSON을 내려받아 한 줄 JSON으로 만든 뒤 `backend/.env`의 `FIREBASE_SERVICE_ACCOUNT_JSON`에 넣으세요. 이 서비스 계정 JSON은 절대로 `frontend/.env`나 저장소에 넣으면 안 됩니다.
 
-사용자는 Safari 또는 Chrome의 공유 메뉴에서 MyManito를 **홈 화면에 추가**한 뒤, 홈 화면 아이콘으로 앱을 열어 상단 설정 아이콘에서 iPhone · iPad를 선택하고 알림을 허용해야 합니다. 일반 브라우저 탭에서는 iOS 기기 알림을 받을 수 없습니다.
+Firebase 웹 API 키와 웹 VAPID 공개 키는 클라이언트에서 사용되는 공개 식별자이지만, Firebase Console에서 허용된 웹 도메인/API로 제한해 두는 것을 권장합니다. HTTPS 배포 주소에서 사용해야 하며, 로컬 개발은 브라우저가 신뢰하는 `localhost` 예외에서만 테스트하세요.
+
+#### iPhone · iPad 표준 Web Push
+
+iOS는 Firebase FCM이 아닌 표준 Web Push를 사용합니다. VAPID 키 쌍을 생성해 비공개 키는 `backend/.env`의 `IOS_WEB_PUSH_VAPID_PRIVATE_KEY`, 공개 키는 `frontend/.env`의 `VITE_IOS_WEB_PUSH_VAPID_PUBLIC_KEY`에 넣고, `IOS_WEB_PUSH_VAPID_SUBJECT`에는 운영자 연락처(예: `mailto:admin@example.com`)를 설정하세요. Firebase VAPID 키와 iOS VAPID 키는 서로 재사용하지 않습니다.
+
+iOS에서는 일반 Safari 또는 Chrome 탭으로 열린 페이지가 알림을 받을 수 없습니다. 반드시 **홈 화면에 추가한 뒤 홈 화면 아이콘으로 실행한 웹 앱**에서 권한을 허용해야 합니다. Chrome도 iOS에서는 이 동일한 홈 화면 앱 조건을 따릅니다.
+
+#### 카카오톡 알림과의 관계
+
+카카오톡 알림은 기기 푸시와 별도의 수단입니다. 알림 설정 화면 맨 아래에서 `카카오톡 알림`을 켜거나 끌 수 있으며, 켠 경우에만 카카오의 `talk_message` 동의 상태에 따라 내 카카오톡의 ‘나와의 채팅’으로 메시지를 전송합니다. 기기 푸시를 끄더라도 카카오톡 알림을 켤 수 있고, 반대로도 가능합니다.
 
 ### 2. Docker로 실행
 
@@ -157,7 +186,10 @@ docker compose up -d --build
 
 - 프론트엔드: `http://localhost:8080`
 - API: Nginx를 통해 `/api/` 경로로 접근
+- 실시간 연결: Nginx를 통해 `/ws/realtime/` 경로로 접근
 - 영속 데이터: `data/db.sqlite3`, `data/media`, `data/static`
+
+Synology 역방향 프록시는 `https://mymanito.wara.synology.me`에서 `http://localhost:8080`으로 연결하고 WebSocket 업그레이드를 활성화하세요. 외부 브라우저는 `wss://mymanito.wara.synology.me/ws/realtime/`에 연결됩니다.
 
 ### 3. 개발 서버 실행
 
@@ -175,6 +207,18 @@ cd frontend
 npm install
 npm run dev
 ```
+
+로컬에서 Django를 직접 실행할 때는 Compose 내부 Redis 이름(`redis`)을 사용할 수 없다. 별도 Redis를 호스트 포트로 실행하고 `backend/.env`에 아래 주소를 지정한다.
+
+```powershell
+docker run -d --name mymanito-local-redis -p 127.0.0.1:6379:6379 redis:7-alpine
+```
+
+```env
+CHANNEL_REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+`docker compose up -d`로 전체 서비스를 실행할 때는 Compose가 `redis://redis:6379/0`을 백엔드에 자동 주입하므로 별도 설정이 필요 없다.
 
 ## 검증 명령
 

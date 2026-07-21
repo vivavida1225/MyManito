@@ -53,6 +53,7 @@ export const useAuthStore = defineStore("auth", {
       this.isInitialized = true;
 
       this.persist();
+      window.dispatchEvent(new Event("auth-token-updated"));
     },
 
     updateAccessToken(accessToken) {
@@ -61,6 +62,7 @@ export const useAuthStore = defineStore("auth", {
       }
       this.accessToken = accessToken;
       this.persist();
+      window.dispatchEvent(new Event("auth-token-updated"));
     },
 
     persist() {
@@ -81,6 +83,7 @@ export const useAuthStore = defineStore("auth", {
       this.isInitialized = true;
       localStorage.removeItem(STORAGE_KEY);
       sessionStorage.removeItem(STORAGE_KEY);
+      window.dispatchEvent(new Event("auth-logout"));
     },
   },
 });

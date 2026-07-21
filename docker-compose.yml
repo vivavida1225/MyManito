@@ -1,4 +1,13 @@
 services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: always
+
   backend:
     build:
       context: ./backend
@@ -10,7 +19,12 @@ services:
       - ./data/static:/app/staticfiles
     expose:
       - "8000"
-    command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 1"
+    environment:
+      CHANNEL_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     restart: always
 
   frontend:
