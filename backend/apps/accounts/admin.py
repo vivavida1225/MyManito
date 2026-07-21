@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User
+from .models import IOSWebPushSubscription, User, WebPushDevice
 
 
 @admin.register(User)
@@ -24,3 +24,15 @@ class KakaoUserAdmin(UserAdmin):
             },
         ),
     )
+
+
+@admin.register(WebPushDevice)
+class WebPushDeviceAdmin(admin.ModelAdmin):
+    list_display = ("user", "updated_at")
+    search_fields = ("user__username", "user__kakao_nickname")
+
+
+@admin.register(IOSWebPushSubscription)
+class IOSWebPushSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ("user", "updated_at")
+    search_fields = ("user__username", "user__kakao_nickname", "endpoint")

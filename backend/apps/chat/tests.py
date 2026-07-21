@@ -15,7 +15,7 @@ from apps.teams.leaderboard_config import CHAT_MESSAGE_POINTS
 from apps.teams.leaderboard_services import award_message_score
 from apps.teams.services import create_team_with_matching
 
-from .models import ChatProfile, Message, MessageAttachment, Notification
+from .models import ChatProfile, FeedbackMessage, FeedbackThread, Message, MessageAttachment, Notification
 from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams
 from .services import DEFAULT_ANONYMOUS_NICKNAMES, make_room_id, notify_message_recipient
 
@@ -108,6 +108,21 @@ class ChatApiTests(TestCase):
         self.assertEqual(poll_response.data["messages"], [])
         self.assertEqual(poll_response.data["room"]["team_code"], self.team.code)
         self.assertEqual(poll_response.data["room"]["my_anonymous_nickname"], "")
+
+    @patch("apps.chat.services.notify_message_recipient_async")
+    def test_message_response_dispatches_notifications_after_commit(self, notification_dispatch_mock):
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = client.post(
+                f"/api/chat/{self.room_id}/messages/",
+                {"content": "백그라운드 알림"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        notification_dispatch_mock.assert_called_once()
 
     @patch("apps.chat.services.notify_message_recipient")
     def test_ended_team_keeps_chat_available_for_seven_days(self, _notify_mock):
@@ -284,6 +299,29 @@ class ChatApiTests(TestCase):
         self.assertFalse(Notification.objects.filter(recipient=self.recipient_user, is_read=False).exists())
         self.assertFalse(Notification.objects.get(pk=other_notification.pk).is_read)
 
+    def test_clears_only_my_notifications(self):
+        Notification.objects.create(
+            recipient=self.recipient_user,
+            team=self.team,
+            kind=Notification.Kind.MESSAGE,
+            title="내 알림",
+        )
+        other_notification = Notification.objects.create(
+            recipient=self.owner,
+            team=self.team,
+            kind=Notification.Kind.MESSAGE,
+            title="다른 사용자 알림",
+        )
+        client = APIClient()
+        client.force_authenticate(self.recipient_user)
+
+        response = client.delete("/api/notifications/clear/", HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["deleted_count"], 1)
+        self.assertFalse(Notification.objects.filter(recipient=self.recipient_user).exists())
+        self.assertTrue(Notification.objects.filter(pk=other_notification.pk).exists())
+
 
 class KakaoNotificationTests(TestCase):
     @patch("apps.chat.services.requests.post")
@@ -340,6 +378,78 @@ class KakaoNotificationTests(TestCase):
             owner=sender,
             validated_data={
                 "code": "notification-no-consent-team",
+                "rules": "",
+                "reciprocal_ratio": 100,
+                "is_participating": True,
+                "parsed_participant_names": ["보낸이", "받는이"],
+            },
+        )
+        sender_participant = Participant.objects.get(team=team, display_name="보낸이")
+        recipient_participant = Participant.objects.get(team=team, display_name="받는이")
+        recipient_participant.claimed_by = recipient
+        recipient_participant.save(update_fields=["claimed_by"])
+        message = Message.objects.create(
+            team=team,
+            sender=sender_participant,
+            recipient=recipient_participant,
+            content="새 메시지",
+        )
+
+        self.assertFalse(notify_message_recipient(message.id))
+        mock_post.assert_not_called()
+
+
+class FeedbackChatTests(TestCase):
+    def setUp(self):
+        self.developer = User.objects.create(id=1, username="developer", kakao_id=1, kakao_nickname="개발자")
+        self.user = User.objects.create(username="feedback-user", kakao_id=9001, kakao_nickname="피드백 사용자")
+        self.user_client = APIClient()
+        self.user_client.force_authenticate(self.user)
+        self.developer_client = APIClient()
+        self.developer_client.force_authenticate(self.developer)
+
+    @patch("apps.chat.views.send_web_push_async")
+    def test_user_and_developer_can_exchange_persistent_feedback_messages(self, _push_mock):
+        create_response = self.user_client.post("/api/chat/feedback/")
+
+        self.assertEqual(create_response.status_code, 201)
+        thread_id = create_response.data["thread_id"]
+        send_response = self.user_client.post(
+            f"/api/chat/feedback/{thread_id}/messages/",
+            {"content": "알림 화면 의견입니다."},
+            format="json",
+        )
+
+        self.assertEqual(send_response.status_code, 201)
+        self.assertTrue(FeedbackThread.objects.filter(pk=thread_id, user=self.user, developer=self.developer).exists())
+        self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id, content="알림 화면 의견입니다.").exists())
+
+        room_response = self.developer_client.get("/api/chat/rooms/")
+        messages_response = self.developer_client.get(f"/api/chat/feedback/{thread_id}/messages/")
+
+        self.assertEqual(room_response.status_code, 200)
+        self.assertEqual(room_response.data["feedback_rooms"][0]["thread_id"], thread_id)
+        self.assertEqual(messages_response.status_code, 200)
+        self.assertEqual(messages_response.data["messages"][0]["sender_nickname"], "피드백 사용자")
+        self.assertIsNotNone(FeedbackMessage.objects.get(thread_id=thread_id).read_at)
+
+        cleanup_expired_ended_teams()
+        self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id).exists())
+
+    @patch("apps.chat.services.requests.post")
+    def test_skips_kakao_notification_when_user_disabled_it(self, mock_post):
+        sender = User.objects.create(username="sender-disabled", kakao_id=4002, kakao_nickname="보낸이")
+        recipient = User.objects.create(
+            username="recipient-disabled",
+            kakao_id=5002,
+            kakao_nickname="받는이",
+            kakao_scopes=["talk_message"],
+            kakao_notification_enabled=False,
+        )
+        team = create_team_with_matching(
+            owner=sender,
+            validated_data={
+                "code": "notification-disabled-team",
                 "rules": "",
                 "reciprocal_ratio": 100,
                 "is_participating": True,

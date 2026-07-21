@@ -6,6 +6,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from apps.accounts.push import send_web_push_async
 from .models import Participant, Team
 from .leaderboard_services import assign_leaderboard_profiles, generate_leaderboard_snapshot
 
@@ -332,6 +333,15 @@ def create_team_announcement(*, team, message):
         for participant in recipients
     ]
     Notification.objects.bulk_create(notifications)
+    for notification in notifications:
+        transaction.on_commit(
+            lambda notification=notification: send_web_push_async(
+                user_id=notification.recipient_id,
+                title=notification.title,
+                body=notification.body,
+                path=f"/teams/{locked_team.code}",
+            )
+        )
     return len(notifications)
 
 
@@ -387,6 +397,15 @@ def create_result_notifications(team):
         )
     ]
     Notification.objects.bulk_create(notifications)
+    for notification in notifications:
+        transaction.on_commit(
+            lambda notification=notification: send_web_push_async(
+                user_id=notification.recipient_id,
+                title=notification.title,
+                body=notification.body,
+                path=f"/teams/{team.code}/reveal",
+            )
+        )
 
 
 def create_claim_notifications(*, team, participant, claiming_user):
@@ -403,22 +422,30 @@ def create_claim_notifications(*, team, participant, claiming_user):
     )
     recipient_ids.discard(claiming_user.id)
 
-    Notification.objects.bulk_create(
-        [
-            Notification(
-                recipient_id=recipient_id,
-                team=team,
-                kind=(
-                    Notification.Kind.PARTICIPANT_CLAIMED
-                    if recipient_id == team.owner_id
-                    else Notification.Kind.COUNTERPART_CLAIMED
-                ),
-                title="참여자 본인 확인 완료",
-                body=f"{participant.display_name} 님이 본인 확인을 완료했습니다.",
+    notifications = [
+        Notification(
+            recipient_id=recipient_id,
+            team=team,
+            kind=(
+                Notification.Kind.PARTICIPANT_CLAIMED
+                if recipient_id == team.owner_id
+                else Notification.Kind.COUNTERPART_CLAIMED
+            ),
+            title="참여자 본인 확인 완료",
+            body=f"{participant.display_name} 님이 본인 확인을 완료했습니다.",
+        )
+        for recipient_id in recipient_ids
+    ]
+    Notification.objects.bulk_create(notifications)
+    for notification in notifications:
+        transaction.on_commit(
+            lambda notification=notification: send_web_push_async(
+                user_id=notification.recipient_id,
+                title=notification.title,
+                body=notification.body,
+                path=f"/teams/{team.code}",
             )
-            for recipient_id in recipient_ids
-        ]
-    )
+        )
 
 
 @transaction.atomic

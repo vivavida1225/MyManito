@@ -142,11 +142,7 @@ onMounted(loadTeams);
                 {{ team.status === 'ACTIVE' ? (team.countdown?.remaining || "종료일 미설정") : "공개 대기" }}
               </span>
             </div>
-            <div class="mt-4 grid grid-cols-2 gap-2 text-xs font-semibold">
-              <span class="rounded-lg bg-white px-2 py-2 text-slate-600 ring-1 ring-slate-100">{{ team.status === 'ACTIVE' ? '참여 현황 · 연결 해제' : '전체 배정표 확인' }}</span>
-              <span class="rounded-lg bg-white px-2 py-2 text-slate-600 ring-1 ring-slate-100">{{ team.status === 'ACTIVE' ? 'D-Day · 게임 종료' : '결과 공개 완료' }}</span>
-            </div>
-            <div class="mt-3 flex items-center justify-between text-sm font-bold text-violet-700">
+            <div class="mt-4 flex items-center justify-between text-sm font-bold text-violet-700">
               <span>{{ team.status === 'ACTIVE' ? (team.unread_count ? `새 메시지 ${team.unread_count}건` : "관리자 설정 열기") : "모든 결과 확인 완료" }}</span>
               <span aria-hidden="true">→</span>
             </div>

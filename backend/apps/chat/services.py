@@ -1,19 +1,22 @@
 import json
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from apps.accounts.push import send_web_push
+from apps.accounts.models import User
 from apps.accounts.services import KakaoAPIError, refresh_kakao_access_token
 from apps.teams.models import Participant, Team
 
-from .models import ChatProfile, Message, MessageAttachment, Notification
+from .models import ChatProfile, FeedbackMessage, FeedbackThread, Message, MessageAttachment, Notification
 
 
 logger = logging.getLogger(__name__)
@@ -21,10 +24,15 @@ KAKAO_MEMO_SEND_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 ROOM_ID_PATTERN = re.compile(r"^(?P<first>\d+)-(?P<second>\d+)$")
 DEFAULT_ANONYMOUS_NICKNAMES = ("마니", "클로디", "마이마니", "마이클로디")
 CHAT_RETENTION_DAYS = 7
+DEVELOPER_USER_ID = 1
 
 
 class ChatRoomError(Exception):
     """요청한 채팅방에 접근하거나 전송할 수 없을 때 발생한다."""
+
+
+class FeedbackError(Exception):
+    """개발자 피드백 대화방에 접근할 수 없을 때 발생한다."""
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,50 @@ class ChatRoom:
 def make_room_id(first_participant_id, second_participant_id):
     first, second = sorted([first_participant_id, second_participant_id])
     return f"{first}-{second}"
+
+
+def get_or_create_feedback_thread(user):
+    try:
+        developer = User.objects.get(pk=DEVELOPER_USER_ID)
+    except User.DoesNotExist as error:
+        raise FeedbackError("개발자 계정을 찾을 수 없습니다.") from error
+    if user.id == developer.id:
+        raise FeedbackError("개발자 계정에서는 피드백 대화방을 만들 수 없습니다.")
+    thread, _ = FeedbackThread.objects.get_or_create(user=user, developer=developer)
+    return thread
+
+
+def get_feedback_thread_for_user(*, thread_id, user):
+    try:
+        thread = FeedbackThread.objects.select_related("user", "developer").get(pk=thread_id)
+    except FeedbackThread.DoesNotExist as error:
+        raise FeedbackError("피드백 대화방을 찾을 수 없습니다.") from error
+    if user.id not in {thread.user_id, thread.developer_id}:
+        raise FeedbackError("이 피드백 대화방에 접근할 권한이 없습니다.")
+    return thread
+
+
+def list_feedback_threads(user):
+    threads = FeedbackThread.objects.select_related("user", "developer")
+    if user.id == DEVELOPER_USER_ID:
+        threads = threads.filter(developer_id=user.id)
+    else:
+        threads = threads.filter(user=user)
+
+    rooms = []
+    for thread in threads:
+        latest_message = thread.messages.order_by("-created_at", "-id").first()
+        is_developer = user.id == thread.developer_id
+        rooms.append(
+            {
+                "thread_id": thread.id,
+                "title": f"{thread.user.kakao_nickname or thread.user.username} 님의 피드백" if is_developer else "개발자에게 피드백",
+                "latest_message_preview": latest_message.content if latest_message else "개발자에게 의견을 남겨 보세요.",
+                "latest_message_at": latest_message.created_at if latest_message else thread.created_at,
+                "unread_count": FeedbackMessage.objects.filter(thread=thread, read_at__isnull=True).exclude(sender=user).count(),
+            }
+        )
+    return rooms
 
 
 def get_default_anonymous_nickname(participant):
@@ -206,7 +258,7 @@ def create_message(*, room, content, image, emoticon_key=""):
         data={"room_id": room.room_id},
     )
 
-    transaction.on_commit(lambda: notify_message_recipient(message.id))
+    transaction.on_commit(lambda: notify_message_recipient_async(message.id))
     from apps.teams.leaderboard_services import award_message_score
 
     award_message_score(message=message, room_id=room.room_id)
@@ -219,14 +271,25 @@ def get_or_create_chat_profile(*, owner, counterpart):
 
 
 def notify_message_recipient(message_id):
-    """수신자의 나와의 채팅방에 발신자 정보를 숨긴 알림을 보낸다."""
+    """수신자의 웹 푸시와 카카오 나와의 채팅방에 익명 알림을 보낸다."""
     message = Message.objects.select_related("recipient__claimed_by").filter(pk=message_id).first()
     if not message or not message.recipient.claimed_by_id:
         return False
-    if "talk_message" not in message.recipient.claimed_by.kakao_scopes:
+
+    room_id = make_room_id(message.sender_id, message.recipient_id)
+    send_web_push(
+        user_id=message.recipient.claimed_by_id,
+        title="새 익명 마니또 메시지",
+        body="새 메시지가 도착했습니다.",
+        path=f"/chat/{room_id}",
+    )
+    if (
+        not message.recipient.claimed_by.kakao_notification_enabled
+        or "talk_message" not in message.recipient.claimed_by.kakao_scopes
+    ):
         return False
 
-    chat_url = f"{settings.MYMANITO_APP_URL.rstrip('/')}/chat/{make_room_id(message.sender_id, message.recipient_id)}"
+    chat_url = f"{settings.MYMANITO_APP_URL.rstrip('/')}/chat/{room_id}"
     try:
         access_token = refresh_kakao_access_token(message.recipient.claimed_by)
         response = requests.post(
@@ -256,3 +319,23 @@ def notify_message_recipient(message_id):
 
     Message.objects.filter(pk=message_id).update(kakao_notified_at=timezone.now())
     return True
+
+
+def notify_message_recipient_async(message_id):
+    """채팅 푸시와 카카오 알림을 요청 응답과 분리해 보낸다."""
+    threading.Thread(
+        target=_notify_message_recipient_in_background,
+        args=(message_id,),
+        daemon=True,
+        name="mymanito-message-notification",
+    ).start()
+
+
+def _notify_message_recipient_in_background(message_id):
+    close_old_connections()
+    try:
+        notify_message_recipient(message_id)
+    except Exception:
+        logger.exception("Background message notification failed")
+    finally:
+        close_old_connections()

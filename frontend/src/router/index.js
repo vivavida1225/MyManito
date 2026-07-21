@@ -32,6 +32,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/settings/notifications",
+      name: "notification-settings",
+      component: () => import("../views/NotificationSettingsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/help",
       name: "help",
       component: () => import("../views/HelpView.vue"),
@@ -89,6 +95,13 @@ const router = createRouter({
       component: () => import("../views/ChatRoomView.vue"),
       meta: { requiresAuth: true },
       props: true,
+    },
+    {
+      path: "/feedback/:threadId",
+      name: "feedback-room",
+      component: () => import("../views/ChatRoomView.vue"),
+      meta: { requiresAuth: true },
+      props: (route) => ({ roomId: route.params.threadId, isFeedback: true }),
     },
     {
       path: "/teams/:teamCode/chat",

@@ -1,12 +1,17 @@
 from django.db import transaction
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User
-from .serializers import KakaoAuthorizationCodeSerializer
+from .models import IOSWebPushSubscription, User, WebPushDevice
+from .serializers import (
+    IOSWebPushSubscriptionSerializer,
+    KakaoAuthorizationCodeSerializer,
+    NotificationSettingsSerializer,
+    WebPushDeviceSerializer,
+)
 from .services import (
     KakaoAPIError,
     get_access_token_expires_at,
@@ -117,3 +122,65 @@ class KakaoLoginView(APIView):
             ]
         )
         return user
+
+
+class WebPushDeviceView(APIView):
+    """현재 로그인 사용자의 브라우저 FCM 토큰을 등록하거나 해제한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = WebPushDeviceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        WebPushDevice.objects.update_or_create(
+            token=serializer.validated_data["token"],
+            defaults={"user": request.user},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def delete(self, request):
+        serializer = WebPushDeviceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        WebPushDevice.objects.filter(user=request.user, token=serializer.validated_data["token"]).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class NotificationSettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "notification_platform": request.user.notification_platform,
+                "kakao_notification_enabled": request.user.kakao_notification_enabled,
+                "has_ios_web_push_subscription": IOSWebPushSubscription.objects.filter(user=request.user).exists(),
+            }
+        )
+
+    def patch(self, request):
+        serializer = NotificationSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated_fields = []
+        for field, value in serializer.validated_data.items():
+            setattr(request.user, field, value)
+            updated_fields.append(field)
+        request.user.save(update_fields=updated_fields)
+        return Response(
+            {
+                "notification_platform": request.user.notification_platform,
+                "kakao_notification_enabled": request.user.kakao_notification_enabled,
+            }
+        )
+
+
+class IOSWebPushSubscriptionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = IOSWebPushSubscriptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        IOSWebPushSubscription.objects.update_or_create(
+            endpoint=serializer.validated_data["endpoint"],
+            defaults={"user": request.user, **serializer.validated_data},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)

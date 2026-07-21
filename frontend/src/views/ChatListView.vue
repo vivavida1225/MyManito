@@ -6,6 +6,7 @@ import { getDefaultProfileImage } from "../assets/profiles/index.js";
 import waitingImage from "../assets/mani_waiting.webp";
 
 const rooms = ref([]);
+const feedbackRooms = ref([]);
 const errorMessage = ref("");
 const isLoading = ref(false);
 const caredForRooms = computed(() => rooms.value.filter((room) => room.relationship_label === "내가 챙겨줄 사람"));
@@ -29,6 +30,7 @@ async function loadRooms() {
   try {
     const response = await api.get("/chat/rooms/");
     rooms.value = response.data.rooms;
+    feedbackRooms.value = response.data.feedback_rooms || [];
   } catch (error) {
     errorMessage.value =
       error.response?.data?.detail || "채팅방 목록을 불러오지 못했습니다.";
@@ -59,8 +61,8 @@ onMounted(loadRooms);
 
     <p v-if="isLoading && !rooms.length" class="py-16 text-center text-sm text-slate-500">채팅방을 불러오고 있어요...</p>
 
-    <div v-else-if="rooms.length" class="mt-7 space-y-7">
-      <div v-for="group in [{ title: '내가 챙겨줄 사람', rooms: caredForRooms }, { title: '나를 챙겨주는 마니또', rooms: caringForMeRooms }]" :key="group.title">
+    <div v-else-if="rooms.length || feedbackRooms.length" class="mt-7 space-y-7">
+      <div v-if="rooms.length" v-for="group in [{ title: '내가 챙겨줄 사람', rooms: caredForRooms }, { title: '나를 챙겨주는 마니또', rooms: caringForMeRooms }]" :key="group.title">
         <h2 class="text-base font-bold text-slate-800">{{ group.title }}</h2>
         <div class="mt-3 space-y-3">
           <RouterLink
@@ -102,6 +104,27 @@ onMounted(loadRooms);
             </div>
           </RouterLink>
           <p v-if="!group.rooms.length" class="rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-500">아직 연결된 채팅방이 없어요.</p>
+        </div>
+      </div>
+
+      <div v-if="feedbackRooms.length">
+        <h2 class="text-base font-bold text-slate-800">개발자 피드백</h2>
+        <div class="mt-3 space-y-3">
+          <RouterLink
+            v-for="room in feedbackRooms"
+            :key="room.thread_id"
+            :to="{ name: 'feedback-room', params: { threadId: room.thread_id } }"
+            class="block rounded-2xl bg-sky-50 p-4 shadow-sm ring-1 ring-sky-100 transition hover:ring-sky-300"
+          >
+            <div class="flex items-center gap-3">
+              <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white text-xl shadow-sm" aria-hidden="true">💬</span>
+              <div class="min-w-0 flex-1">
+                <p class="font-bold text-slate-800">{{ room.title }}</p>
+                <p class="mt-1 truncate text-sm text-slate-500">{{ room.latest_message_preview }}</p>
+              </div>
+              <span v-if="room.unread_count" class="min-w-5 rounded-full bg-rose-500 px-1.5 py-0.5 text-center text-xs font-bold text-white">{{ room.unread_count }}</span>
+            </div>
+          </RouterLink>
         </div>
       </div>
     </div>

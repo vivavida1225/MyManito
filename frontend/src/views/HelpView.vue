@@ -1,54 +1,14 @@
 <script setup>
-import { computed, ref } from "vue";
-import { useRoute } from "vue-router";
+import { ref } from "vue";
 
 import introducingImage from "../assets/mani_introducing.webp";
-import { useAuthStore } from "../stores/auth";
 
 const activeGuide = ref("participant");
-const consentError = ref("");
-const route = useRoute();
-const auth = useAuthStore();
-const KAKAO_AUTHORIZE_URL = "https://kauth.kakao.com/oauth/authorize";
-const KAKAO_OAUTH_STATE_KEY = "mymanito.kakao_oauth_state";
-const REDIRECT_PATH_KEY = "redirectPath";
-const needsTalkMessageConsent = computed(
-  () => !auth.kakaoProfile?.kakao_scopes?.includes("talk_message"),
-);
-
-function createOAuthState() {
-  const bytes = new Uint32Array(4);
-  window.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (value) => value.toString(36)).join("");
-}
-
-function requestTalkMessageConsent() {
-  const clientId = import.meta.env.VITE_KAKAO_REST_API_KEY;
-  const redirectUri = import.meta.env.VITE_KAKAO_REDIRECT_URI;
-  if (!clientId || !redirectUri) {
-    consentError.value = "카카오 로그인 환경 설정을 확인해 주세요.";
-    return;
-  }
-
-  const state = createOAuthState();
-  sessionStorage.setItem(KAKAO_OAUTH_STATE_KEY, state);
-  localStorage.setItem(REDIRECT_PATH_KEY, route.fullPath);
-
-  const authorizationUrl = new URL(KAKAO_AUTHORIZE_URL);
-  authorizationUrl.search = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: "talk_message,profile_nickname,profile_image,account_email",
-    state,
-  }).toString();
-  window.location.assign(authorizationUrl.toString());
-}
 
 const participantSteps = [
   {
     title: "카카오톡으로 로그인하기",
-    description: "로그인 과정에서 ‘카카오톡 메시지 전송’ 동의도 꼭 완료해 주세요. 동의하지 않으면 새 메시지 알림을 받을 수 없어요.",
+    description: "로그인 과정에서 ‘카카오톡 메시지 전송’ 에 동의하면 카카오톡의 '나와의 채팅' 내에서 마이마니또의 알림을 받아볼 수 있어요.",
   },
   {
     title: "팀 코드와 규칙 확인하기",
@@ -72,14 +32,16 @@ const participantSteps = [
   },
   {
     title: "익명 리더보드 즐기기",
-    description: "채팅, 좋아요, 팀 접속 활동은 서버에서만 점수로 반영돼요. 정확한 점수는 공개하지 않고 순위는 매시 정각에 갱신되며, 결과가 공개된 뒤에만 실제 이름과 게임 별명이 함께 보여요.",
+    description: "채팅, 채팅 내 좋아요, 팀 접속으로 개인 점수를 올릴 수 있어요. 정확한 점수는 공개되지 않고 결과가 공개된 뒤에만 실제 이름과 게임 별명이 함께 보여요. 오늘 마니또에게 고마운 일이 있었다면 좋아요를 ",
+    emphasis: "꼭!",
+    descriptionAfter: " 눌러봐요.",
   },
 ];
 
 const adminSteps = [
   {
     title: "팀 만들기",
-    description: "공백 없는 팀 코드와 참가자 명단을 입력해요. 동명이인은 ‘김민수A’, ‘김민수B’처럼 구분해 등록해 주세요.",
+    description: "공백 없는 팀 코드와 참가자 명단을 입력해요. 팀 코드는 단체명이나 구호 등 여러분 모두를 표현할 수 있는 단어로 해 주세요. 동명이인은 ‘김민수A’, ‘김민수B’처럼 구분해 등록해 주세요.",
   },
   {
     title: "규칙·종료 예정일·공개 방식 정하기",
@@ -107,26 +69,6 @@ const adminSteps = [
 <template>
   <section class="p-5 pb-10">
     <img :src="introducingImage" alt="마이마니또 이용 가이드" class="mx-auto w-72 max-w-full object-contain" />
-
-    <aside class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4" aria-labelledby="kakao-notification-guide">
-      <p id="kakao-notification-guide" class="text-sm font-extrabold text-amber-900">카카오톡 알림은 ‘나와의 채팅’을 확인해 주세요</p>
-      <p class="mt-2 text-sm leading-6 text-amber-900/80">
-        익명 마니또의 새 메시지는 카카오톡 친구가 아닌 <strong>내 카카오톡의 ‘나와의 채팅’</strong>으로 도착해요.
-        소리·진동 알림 없이 조용히 도착할 수 있으니, 카카오톡의 <strong>나와의 채팅</strong>을 가끔 확인해 주세요.
-      </p>
-      <p v-if="needsTalkMessageConsent" class="mt-2 text-xs leading-5 text-amber-800">알림을 받으려면 카카오 로그인 중 ‘카카오톡 메시지 전송’ 항목에 동의해야 합니다.</p>
-      <p v-else class="mt-2 text-xs font-bold leading-5 text-emerald-700">카카오톡 메시지 전송 동의가 완료되어 있어요.</p>
-      <div v-if="needsTalkMessageConsent" class="mt-4 flex justify-end">
-        <button
-          type="button"
-          class="rounded-xl bg-amber-400 px-3 py-2 text-xs font-extrabold text-amber-950 transition hover:bg-amber-300 focus:outline-none focus:ring-4 focus:ring-amber-200"
-          @click="requestTalkMessageConsent"
-        >
-          메시지 전송 동의하러 가기 →
-        </button>
-      </div>
-      <p v-if="consentError" class="mt-2 text-right text-xs font-medium text-red-600" role="alert">{{ consentError }}</p>
-    </aside>
 
     <div class="mt-6 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5" role="tablist" aria-label="이용자 유형 선택">
       <button
@@ -160,7 +102,9 @@ const adminSteps = [
             <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-extrabold text-amber-800">{{ index + 1 }}</span>
             <div>
               <h3 class="font-bold text-slate-800">{{ step.title }}</h3>
-              <p class="mt-1 text-sm leading-6 text-slate-600">{{ step.description }}</p>
+              <p class="mt-1 text-sm leading-6 text-slate-600">
+                {{ step.description }}<span v-if="step.emphasis" class="inline-flex -translate-y-px rounded-full bg-rose-100 px-1.5 py-0.5 text-xs font-extrabold text-rose-600 ring-1 ring-rose-200">{{ step.emphasis }}</span>{{ step.descriptionAfter }}
+              </p>
             </div>
           </li>
         </ol>

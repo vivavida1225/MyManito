@@ -3,7 +3,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
-from apps.chat.views import NotificationListView, NotificationReadAllView, NotificationReadView
+from apps.chat.views import NotificationClearView, NotificationListView, NotificationReadAllView, NotificationReadView
 
 
 urlpatterns = [
@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/chat/", include("apps.chat.urls")),
     path("api/notifications/", NotificationListView.as_view(), name="notification-list"),
     path("api/notifications/read-all/", NotificationReadAllView.as_view(), name="notification-read-all"),
+    path("api/notifications/clear/", NotificationClearView.as_view(), name="notification-clear"),
     path("api/notifications/<int:notification_id>/read/", NotificationReadView.as_view(), name="notification-read"),
 ]
 

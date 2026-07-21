@@ -10,6 +10,7 @@ const notifications = ref([]);
 const errorMessage = ref("");
 const isLoading = ref(false);
 const isMarkingAllRead = ref(false);
+const isClearing = ref(false);
 const hasUnreadNotifications = computed(() => notifications.value.some((notification) => !notification.is_read));
 
 function formatCreatedAt(createdAt) {
@@ -89,7 +90,27 @@ async function markAllAsRead() {
   }
 }
 
-onMounted(loadNotifications);
+async function clearNotifications() {
+  if (!notifications.value.length || !window.confirm("알림함의 모든 알림을 비울까요?")) {
+    return;
+  }
+
+  isClearing.value = true;
+  errorMessage.value = "";
+  try {
+    await api.delete("/notifications/clear/");
+    notifications.value = [];
+    window.dispatchEvent(new Event("notifications-updated"));
+  } catch (error) {
+    errorMessage.value = error.response?.data?.detail || "알림을 비우지 못했습니다.";
+  } finally {
+    isClearing.value = false;
+  }
+}
+
+onMounted(() => {
+  loadNotifications();
+});
 </script>
 
 <template>
@@ -103,7 +124,7 @@ onMounted(loadNotifications);
         <button
           type="button"
           class="rounded-xl bg-white px-3 py-2 text-sm font-bold text-slate-600 shadow-sm ring-1 ring-slate-100 disabled:opacity-50"
-          :disabled="isLoading || isMarkingAllRead || !hasUnreadNotifications"
+          :disabled="isLoading || isMarkingAllRead || isClearing || !hasUnreadNotifications"
           @click="markAllAsRead"
         >
           {{ isMarkingAllRead ? "처리 중..." : "모두 읽음" }}
@@ -111,10 +132,10 @@ onMounted(loadNotifications);
         <button
           type="button"
           class="rounded-xl bg-white px-3 py-2 text-sm font-bold text-slate-600 shadow-sm ring-1 ring-slate-100 disabled:opacity-50"
-          :disabled="isLoading || isMarkingAllRead"
-          @click="loadNotifications"
+          :disabled="isLoading || isMarkingAllRead || isClearing || !notifications.length"
+          @click="clearNotifications"
         >
-          새로고침
+          {{ isClearing ? "비우는 중..." : "알림 비우기" }}
         </button>
       </div>
     </div>

@@ -35,6 +35,52 @@ class User(AbstractUser):
         blank=True,
         help_text="사용자가 동의한 카카오 권한 ID 목록",
     )
+    class NotificationPlatform(models.TextChoices):
+        ANDROID = "ANDROID", "Android"
+        IOS = "IOS", "iOS"
+
+    notification_platform = models.CharField(
+        max_length=10,
+        choices=NotificationPlatform.choices,
+        default=NotificationPlatform.ANDROID,
+        help_text="기기 알림 발송 방식",
+    )
+    kakao_notification_enabled = models.BooleanField(
+        default=True,
+        help_text="카카오톡 나와의 채팅 알림 수신 여부",
+    )
 
     def __str__(self):
         return self.kakao_nickname or str(self.kakao_id)
+
+
+class WebPushDevice(models.Model):
+    """사용자가 웹 푸시를 허용한 브라우저의 FCM 등록 토큰."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="web_push_devices")
+    token = models.CharField(max_length=4096, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"Web push device for {self.user_id}"
+
+
+class IOSWebPushSubscription(models.Model):
+    """홈 화면 iOS 웹앱의 표준 Web Push 구독 정보."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="ios_web_push_subscriptions")
+    endpoint = models.URLField(max_length=2048, unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    def __str__(self):
+        return f"iOS web push subscription for {self.user_id}"

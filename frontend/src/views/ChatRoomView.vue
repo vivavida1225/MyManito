@@ -18,6 +18,10 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  isFeedback: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const router = useRouter();
@@ -58,6 +62,12 @@ const IMAGE_COMPRESSION_OPTIONS = {
   useWebWorker: true,
 };
 
+function messageEndpoint() {
+  return props.isFeedback
+    ? `/chat/feedback/${props.roomId}/messages/`
+    : `/chat/${props.roomId}/messages/`;
+}
+
 function appendMessages(newMessages) {
   const existingIds = new Set(messages.value.map((message) => message.id));
   messages.value = [...messages.value, ...newMessages.filter((message) => !existingIds.has(message.id))]
@@ -78,7 +88,7 @@ async function loadMessages() {
 
   isFetching.value = true;
   try {
-    const response = await api.get(`/chat/${props.roomId}/messages/`, {
+    const response = await api.get(messageEndpoint(), {
       params: since.value ? { since: since.value } : undefined,
     });
     roomInfo.value = response.data.room;
@@ -98,6 +108,9 @@ async function loadMessages() {
 }
 
 async function loadProfile() {
+  if (props.isFeedback) {
+    return;
+  }
   try {
     const response = await api.get(`/chat/${props.roomId}/profile/`);
     chatProfile.value = response.data;
@@ -123,7 +136,7 @@ function likeCooldownLabel() {
 }
 
 async function likeRoom() {
-  if (isLiking.value || roomInfo.value?.team_status !== "ACTIVE") {
+  if (props.isFeedback || isLiking.value || roomInfo.value?.team_status !== "ACTIVE") {
     return;
   }
   errorMessage.value = "";
@@ -192,20 +205,21 @@ async function postMessage({ messageContent = "", image = null, imageName = "", 
   errorMessage.value = "";
   isSending.value = true;
   try {
-    const formData = new FormData();
-    if (messageContent) {
-      formData.append("content", messageContent);
-    }
-    if (image) {
-      formData.append("image", image, imageName || image.name || "manito-emoticon.webp");
-    }
-    if (emoticonKey) {
-      formData.append("emoticon_key", emoticonKey);
-    }
-
-    const response = await api.post(`/chat/${props.roomId}/messages/`, formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
+    const response = props.isFeedback
+      ? await api.post(messageEndpoint(), { content: messageContent })
+      : await api.post(messageEndpoint(), (() => {
+        const formData = new FormData();
+        if (messageContent) {
+          formData.append("content", messageContent);
+        }
+        if (image) {
+          formData.append("image", image, imageName || image.name || "manito-emoticon.webp");
+        }
+        if (emoticonKey) {
+          formData.append("emoticon_key", emoticonKey);
+        }
+        return formData;
+      })(), { headers: { "Content-Type": "multipart/form-data" } });
     appendMessages([response.data]);
     since.value = response.data.created_at;
     await scrollToLatest();
@@ -257,7 +271,9 @@ async function sendEmoticon(emoticon) {
 
 onMounted(async () => {
   await loadMessages();
-  await loadProfile();
+  if (!props.isFeedback) {
+    await loadProfile();
+  }
   pollingTimer = window.setInterval(loadMessages, 3000);
 });
 
@@ -273,10 +289,10 @@ onUnmounted(() => {
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
       </button>
       <div>
-        <h1 class="font-bold text-slate-800">익명 마니또 채팅</h1>
-        <p v-if="roomInfo" class="text-xs text-slate-400">팀 코드 {{ roomInfo.team_code }}</p>
+        <h1 class="font-bold text-slate-800">{{ roomInfo?.title || (isFeedback ? "개발자에게 피드백" : "익명 마니또 채팅") }}</h1>
+        <p v-if="roomInfo" class="text-xs text-slate-400">{{ isFeedback ? roomInfo.subtitle : `팀 코드 ${roomInfo.team_code}` }}</p>
       </div>
-      <div class="ml-auto flex items-center gap-2">
+      <div v-if="!isFeedback" class="ml-auto flex items-center gap-2">
         <button
           type="button"
           class="rounded-full p-2 transition disabled:opacity-40"
@@ -295,15 +311,15 @@ onUnmounted(() => {
           :disabled="!chatProfile"
           @click="openSettings"
         >
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2 2-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-2.8v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3L9 19l-2-2 .1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H5.7v-2.8h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L7 8.2l2-2 .1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2h2.8v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2 2-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2V14h-.2a1.7 1.7 0 0 0-1.5 1Z" /></svg>
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42l-.38 2.65a7.3 7.3 0 0 0-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.09.73 1.69.98l.38 2.65c.04.24.25.42.49.42h4c.24 0 .45-.18.49-.42l.38-2.65c.6-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" /></svg>
         </button>
       </div>
     </header>
-    <p v-if="likeNextAvailableAt" class="shrink-0 bg-rose-50 px-4 py-2 text-center text-xs font-medium text-rose-600">{{ likeCooldownLabel() }}</p>
+    <p v-if="!isFeedback && likeNextAvailableAt" class="shrink-0 bg-rose-50 px-4 py-2 text-center text-xs font-medium text-rose-600">{{ likeCooldownLabel() }}</p>
 
     <div ref="messageList" class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
       <p
-        v-if="roomInfo?.team_status === 'ENDED'"
+        v-if="!isFeedback && roomInfo?.team_status === 'ENDED'"
         class="rounded-xl bg-amber-100 px-3 py-2 text-center text-xs leading-5 text-amber-900"
       >
         게임은 종료되었지만, 이 채팅방은 종료 후 7일간 유지돼요. 7일 뒤 채팅 내역과 함께 사라집니다.
@@ -361,6 +377,7 @@ onUnmounted(() => {
       </div>
       <div class="flex gap-2">
         <input
+          v-if="!isFeedback"
           ref="fileInput"
           accept="image/*"
           class="sr-only"
@@ -370,6 +387,7 @@ onUnmounted(() => {
           @change="selectImage"
         />
         <label
+          v-if="!isFeedback"
           for="chat-image-input"
           class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-amber-50"
           :class="isSending || isCompressing ? 'pointer-events-none opacity-50' : ''"
@@ -379,6 +397,7 @@ onUnmounted(() => {
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
         </label>
         <button
+          v-if="!isFeedback"
           type="button"
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-amber-50"
           :aria-expanded="isEmoticonPickerOpen"
@@ -393,7 +412,7 @@ onUnmounted(() => {
         <input
           v-model="content"
           class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
-          placeholder="익명으로 메시지 보내기"
+          :placeholder="isFeedback ? '개발자에게 의견을 남겨 주세요.' : ''"
         />
         <button
           type="submit"
@@ -403,11 +422,11 @@ onUnmounted(() => {
           {{ isCompressing ? "압축 중..." : isSending ? "전송 중..." : "전송" }}
         </button>
       </div>
-      <p v-if="imageFile" class="mt-1 text-xs text-slate-500">{{ imageFile.name }}</p>
+      <p v-if="!isFeedback && imageFile" class="mt-1 text-xs text-slate-500">{{ imageFile.name }}</p>
     </form>
 
     <ProfileSetupModal
-      v-if="showProfileSetup"
+      v-if="!isFeedback && showProfileSetup"
       :initial-profile="chatProfile?.my_profile"
       :is-saving="isSavingProfile"
       :error-message="profileError"

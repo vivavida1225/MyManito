@@ -25,6 +25,7 @@ frontend/.vite/
 tmp/
 *.log
 npm-debug.log*
+MyManito-docker-*.zip
 
 # Editor and operating-system files
 .vscode/

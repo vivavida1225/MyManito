@@ -49,6 +49,34 @@ class ChatProfile(models.Model):
         ]
 
 
+class FeedbackThread(models.Model):
+    """사용자와 개발자(id=1) 사이의 영구 피드백 대화방."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="feedback_threads")
+    developer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="received_feedback_threads")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "developer"], name="unique_feedback_thread_per_user"),
+        ]
+
+
+class FeedbackMessage(models.Model):
+    """팀 종료 후 정리 대상에 포함되지 않는 개발자 피드백 메시지."""
+
+    thread = models.ForeignKey(FeedbackThread, on_delete=models.CASCADE, related_name="messages")
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sent_feedback_messages")
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+
 class Notification(models.Model):
     """앱 내 팀 이벤트 알림."""
 

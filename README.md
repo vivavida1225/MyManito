@@ -129,10 +129,25 @@ Copy-Item frontend/.env.example frontend/.env
 | `backend/.env` | `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` | 카카오 OAuth 설정 |
 | `backend/.env` | `KAKAO_REDIRECT_URI` | 카카오 로그인 콜백 주소 |
 | `backend/.env` | `MYMANITO_APP_URL` | 카카오 메시지 링크에 사용할 서비스 주소 |
+| `backend/.env` | `FIREBASE_SERVICE_ACCOUNT_JSON` | Android FCM 발송용 Firebase 서비스 계정 JSON 전체(서버 전용) |
+| `backend/.env` | `IOS_WEB_PUSH_VAPID_PRIVATE_KEY`, `IOS_WEB_PUSH_VAPID_SUBJECT` | iOS 표준 Web Push VAPID 비공개 키와 연락처(서버 전용) |
 | `frontend/.env` | `VITE_KAKAO_REST_API_KEY` | 프론트엔드 카카오 REST API 키 |
 | `frontend/.env` | `VITE_API_BASE_URL` | API 기본 경로 |
+| `frontend/.env` | `VITE_IOS_WEB_PUSH_VAPID_PUBLIC_KEY` | iOS VAPID 비공개 키와 쌍인 공개 키 |
 
 카카오 개발자 콘솔에서 `talk_message` 동의 항목과 등록된 Redirect URI를 함께 설정해야 메시지 알림을 받을 수 있습니다.
+
+### Firebase 기기 알림 설정
+
+제공된 Firebase 웹 설정과 VAPID 공개 키는 프론트엔드에 연결되어 있습니다. 실제 FCM 발송에는 공개 웹 설정과 별도로 **Firebase 서비스 계정 비공개 키**가 필요합니다. Firebase Console의 **프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성**에서 JSON을 내려받아 한 줄 JSON으로 만든 뒤 `backend/.env`의 `FIREBASE_SERVICE_ACCOUNT_JSON`에 넣으세요. 이 값은 절대로 `frontend/.env`나 저장소에 넣으면 안 됩니다.
+
+배포 URL은 HTTPS여야 합니다. 배포 후 상단 설정 아이콘에서 Android를 선택하고 `이 기기 알림 켜기`를 누르면 Chrome FCM 알림을 등록합니다. 새 메시지, 참여 확인, D-Day, 관리자 공지, 결과 공개가 발생할 때 앱 내 알림과 기기 푸시가 함께 전송됩니다.
+
+### iPhone · iPad 기기 알림 설정
+
+iOS 16.4 이상은 Firebase FCM이 아닌 표준 Web Push를 사용합니다. VAPID 키 쌍을 생성해 비공개 키는 `backend/.env`의 `IOS_WEB_PUSH_VAPID_PRIVATE_KEY`, 공개 키는 `frontend/.env`의 `VITE_IOS_WEB_PUSH_VAPID_PUBLIC_KEY`에 넣고, `IOS_WEB_PUSH_VAPID_SUBJECT`에는 운영자 연락처(예: `mailto:admin@example.com`)를 설정하세요. Firebase VAPID 키와 iOS VAPID 키는 별개입니다.
+
+사용자는 Safari 또는 Chrome의 공유 메뉴에서 MyManito를 **홈 화면에 추가**한 뒤, 홈 화면 아이콘으로 앱을 열어 상단 설정 아이콘에서 iPhone · iPad를 선택하고 알림을 허용해야 합니다. 일반 브라우저 탭에서는 iOS 기기 알림을 받을 수 없습니다.
 
 ### 2. Docker로 실행
 

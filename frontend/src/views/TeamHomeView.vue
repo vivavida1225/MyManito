@@ -26,6 +26,7 @@ let countdownTimer;
 const isClaimed = computed(() => assignment.value?.is_claimed === true);
 const caredForRoom = computed(() => rooms.value.find((room) => room.relationship_label === "내가 챙겨줄 사람"));
 const caringForMeRoom = computed(() => rooms.value.find((room) => room.relationship_label === "나를 챙겨주는 마니또"));
+const teamRules = computed(() => (team.value?.rules || "").split(/\r?\n/).map((rule) => rule.trim()).filter(Boolean));
 
 function getTeamMidnightTimestamp(dateString, timeZone) {
   const [year, month, day] = dateString.split("-").map(Number);
@@ -144,19 +145,9 @@ onUnmounted(() => window.clearInterval(countdownTimer));
 
 <template>
   <section class="p-5 pb-10">
-    <div class="flex items-start justify-between gap-4">
-      <div>
-        <p class="text-sm font-bold text-amber-500">{{ teamCode }}</p>
-        <h1 class="mt-1 text-2xl font-extrabold text-slate-800">팀 대시보드</h1>
-      </div>
-      <button
-        type="button"
-        class="rounded-xl bg-white px-3 py-2 text-sm font-bold text-slate-600 shadow-sm ring-1 ring-slate-100 disabled:opacity-50"
-        :disabled="isLoading"
-        @click="loadTeamHome"
-      >
-        새로고침
-      </button>
+    <div>
+      <p class="text-sm font-bold text-amber-500">{{ teamCode }}</p>
+      <h1 class="mt-1 text-2xl font-extrabold text-slate-800">팀 대시보드</h1>
     </div>
 
     <p v-if="isLoading && !team" class="py-16 text-center text-sm text-slate-500">팀 정보를 불러오고 있어요...</p>
@@ -184,9 +175,13 @@ onUnmounted(() => window.clearInterval(countdownTimer));
         <span class="text-xl text-violet-600" aria-hidden="true">→</span>
       </RouterLink>
 
-      <div v-if="team.rules" class="rounded-2xl border border-slate-200 px-4 py-3">
+      <div v-if="teamRules.length" class="rounded-2xl border border-slate-200 px-4 py-4">
         <p class="font-bold text-slate-700">📣우리 팀 규칙</p>
-        <p class="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{{ team.rules }}</p>
+        <ol class="mt-3 space-y-1 text-sm font-medium leading-6 text-slate-600">
+          <li v-for="(rule, index) in teamRules" :key="index" class="rounded-xl bg-slate-50 px-3 py-1">
+            {{ rule }}
+          </li>
+        </ol>
       </div>
 
       <div v-else class="rounded-3xl bg-white p-5 text-center shadow-sm ring-1 ring-slate-100">
