@@ -33,10 +33,6 @@ class MessageCreateSerializer(serializers.Serializer):
         return attrs
 
 
-class FeedbackMessageCreateSerializer(serializers.Serializer):
-    content = serializers.CharField(trim_whitespace=True)
-
-
 class ChatProfileUpdateSerializer(serializers.Serializer):
     nickname = serializers.CharField(max_length=50, required=False, allow_blank=False, trim_whitespace=True)
     image = serializers.ImageField(required=False)

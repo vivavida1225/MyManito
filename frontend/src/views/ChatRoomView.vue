@@ -43,6 +43,7 @@ const isSavingProfile = ref(false);
 const isEmoticonPickerOpen = ref(false);
 const isLiking = ref(false);
 const likeNextAvailableAt = ref(null);
+let previousBodyOverflow = "";
 const emoticons = [
   ...DEFAULT_PROFILE_OPTIONS,
   { key: "mani-celebrating", label: "축하하는 마니", image: celebratingImage },
@@ -226,21 +227,17 @@ async function postMessage({ messageContent = "", image = null, imageName = "", 
   errorMessage.value = "";
   isSending.value = true;
   try {
-    const response = props.isFeedback
-      ? await api.post(messageEndpoint(), { content: messageContent })
-      : await api.post(messageEndpoint(), (() => {
-        const formData = new FormData();
-        if (messageContent) {
-          formData.append("content", messageContent);
-        }
-        if (image) {
-          formData.append("image", image, imageName || image.name || "manito-emoticon.webp");
-        }
-        if (emoticonKey) {
-          formData.append("emoticon_key", emoticonKey);
-        }
-        return formData;
-      })(), { headers: { "Content-Type": "multipart/form-data" } });
+    const formData = new FormData();
+    if (messageContent) {
+      formData.append("content", messageContent);
+    }
+    if (image) {
+      formData.append("image", image, imageName || image.name || "manito-emoticon.webp");
+    }
+    if (emoticonKey) {
+      formData.append("emoticon_key", emoticonKey);
+    }
+    const response = await api.post(messageEndpoint(), formData, { headers: { "Content-Type": "multipart/form-data" } });
     appendMessages([response.data]);
     since.value = response.data.created_at;
     await scrollToLatest();
@@ -298,6 +295,8 @@ function handleRealtimeMessage(event) {
 }
 
 onMounted(async () => {
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
   await loadMessages();
   if (!props.isFeedback) {
     await loadProfile();
@@ -306,6 +305,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  document.body.style.overflow = previousBodyOverflow;
   window.removeEventListener("realtime-chat-message", handleRealtimeMessage);
 });
 </script>
@@ -345,7 +345,7 @@ onUnmounted(() => {
     </header>
     <p v-if="!isFeedback && likeNextAvailableAt" class="shrink-0 bg-rose-50 px-4 py-2 text-center text-xs font-medium text-rose-600">{{ likeCooldownLabel() }}</p>
 
-    <div ref="messageList" class="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+    <div ref="messageList" class="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
       <p
         v-if="!isFeedback && roomInfo?.team_status === 'ENDED'"
         class="rounded-xl bg-amber-100 px-3 py-2 text-center text-xs leading-5 text-amber-900"
@@ -415,7 +415,6 @@ onUnmounted(() => {
       </div>
       <div class="flex gap-2">
         <input
-          v-if="!isFeedback"
           ref="fileInput"
           accept="image/*"
           class="sr-only"
@@ -425,7 +424,6 @@ onUnmounted(() => {
           @change="selectImage"
         />
         <label
-          v-if="!isFeedback"
           for="chat-image-input"
           class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-amber-50"
           :class="isSending || isCompressing ? 'pointer-events-none opacity-50' : ''"
@@ -435,7 +433,6 @@ onUnmounted(() => {
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
         </label>
         <button
-          v-if="!isFeedback"
           type="button"
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-amber-50"
           :aria-expanded="isEmoticonPickerOpen"
@@ -460,7 +457,7 @@ onUnmounted(() => {
           {{ isCompressing ? "압축 중..." : isSending ? "전송 중..." : "전송" }}
         </button>
       </div>
-      <p v-if="!isFeedback && imageFile" class="mt-1 text-xs text-slate-500">{{ imageFile.name }}</p>
+      <p v-if="imageFile" class="mt-1 text-xs text-slate-500">{{ imageFile.name }}</p>
     </form>
 
     <ProfileSetupModal

@@ -69,12 +69,21 @@ class FeedbackMessage(models.Model):
 
     thread = models.ForeignKey(FeedbackThread, on_delete=models.CASCADE, related_name="messages")
     sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sent_feedback_messages")
-    content = models.TextField()
+    content = models.TextField(blank=True)
+    emoticon_key = models.CharField(max_length=40, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     read_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at", "id"]
+
+
+class FeedbackMessageAttachment(models.Model):
+    """개발자 피드백 메시지에 첨부된 이미지."""
+
+    message = models.ForeignKey(FeedbackMessage, on_delete=models.CASCADE, related_name="attachments")
+    image = models.ImageField(upload_to="feedback_chat/%Y/%m/%d/")
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class Notification(models.Model):

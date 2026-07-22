@@ -15,7 +15,7 @@ from apps.teams.leaderboard_config import CHAT_MESSAGE_POINTS
 from apps.teams.leaderboard_services import award_message_score
 from apps.teams.services import create_team_with_matching
 
-from .models import ChatProfile, FeedbackMessage, FeedbackThread, Message, MessageAttachment, Notification
+from .models import ChatProfile, FeedbackMessage, FeedbackMessageAttachment, FeedbackThread, Message, MessageAttachment, Notification
 from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams
 from .services import DEFAULT_ANONYMOUS_NICKNAMES, make_room_id, notify_message_recipient
 
@@ -447,16 +447,48 @@ class FeedbackChatTests(TestCase):
         self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id, content="알림 화면 의견입니다.").exists())
 
         room_response = self.developer_client.get("/api/chat/rooms/")
+        user_room_response = self.user_client.get("/api/chat/rooms/")
         messages_response = self.developer_client.get(f"/api/chat/feedback/{thread_id}/messages/")
 
         self.assertEqual(room_response.status_code, 200)
         self.assertEqual(room_response.data["feedback_rooms"][0]["thread_id"], thread_id)
+        self.assertEqual(user_room_response.data["feedback_rooms"], [])
         self.assertEqual(messages_response.status_code, 200)
         self.assertEqual(messages_response.data["messages"][0]["sender_nickname"], "피드백 사용자")
         self.assertIsNotNone(FeedbackMessage.objects.get(thread_id=thread_id).read_at)
 
         cleanup_expired_ended_teams()
         self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id).exists())
+
+    @patch("apps.chat.views.send_web_push_async")
+    def test_feedback_messages_support_images_and_emoticons(self, _push_mock):
+        thread_id = self.user_client.post("/api/chat/feedback/").data["thread_id"]
+        image = SimpleUploadedFile(
+            "feedback.gif",
+            b"GIF87a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\n\x00\x01\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;",
+            content_type="image/gif",
+        )
+
+        image_response = self.user_client.post(
+            f"/api/chat/feedback/{thread_id}/messages/",
+            {"image": image},
+            format="multipart",
+        )
+        emoticon_response = self.user_client.post(
+            f"/api/chat/feedback/{thread_id}/messages/",
+            {"emoticon_key": "mani-0"},
+            format="json",
+        )
+
+        self.assertEqual(image_response.status_code, 201)
+        self.assertTrue(image_response.data["image_url"])
+        self.assertEqual(emoticon_response.status_code, 201)
+        self.assertEqual(emoticon_response.data["emoticon_key"], "mani-0")
+        self.assertEqual(FeedbackMessageAttachment.objects.filter(message_id=image_response.data["id"]).count(), 1)
+        self.assertEqual(
+            self.developer_client.get("/api/chat/rooms/").data["feedback_rooms"][0]["latest_message_preview"],
+            "이모티콘을 보냈어요.",
+        )
 
     @patch("apps.chat.services.requests.post")
     def test_skips_kakao_notification_when_user_disabled_it(self, mock_post):

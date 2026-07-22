@@ -8,10 +8,9 @@ from rest_framework.views import APIView
 
 from apps.accounts.push import send_web_push_async
 from apps.realtime.events import publish_user_events_on_commit
-from .models import FeedbackMessage, FeedbackThread, Notification, Message
+from .models import FeedbackMessage, FeedbackMessageAttachment, FeedbackThread, Notification, Message
 from .serializers import (
     ChatProfileUpdateSerializer,
-    FeedbackMessageCreateSerializer,
     MessageCreateSerializer,
     MessageListQuerySerializer,
     MessageSerializer,
@@ -56,6 +55,7 @@ class FeedbackThreadCreateView(APIView):
 
 class FeedbackMessageView(APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def get(self, request, thread_id):
         try:
@@ -65,7 +65,7 @@ class FeedbackMessageView(APIView):
 
         query_serializer = MessageListQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
-        messages = FeedbackMessage.objects.filter(thread=thread).select_related("sender")
+        messages = FeedbackMessage.objects.filter(thread=thread).select_related("sender").prefetch_related("attachments")
         since = query_serializer.validated_data.get("since")
         if since:
             messages = messages.filter(created_at__gt=since)
@@ -90,11 +90,18 @@ class FeedbackMessageView(APIView):
         except FeedbackError as error:
             return Response({"detail": str(error)}, status=status.HTTP_403_FORBIDDEN)
 
-        serializer = FeedbackMessageCreateSerializer(data=request.data)
+        serializer = MessageCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         recipient_id = thread.developer_id if request.user.id == thread.user_id else thread.user_id
         with transaction.atomic():
-            message = FeedbackMessage.objects.create(thread=thread, sender=request.user, content=serializer.validated_data["content"])
+            message = FeedbackMessage.objects.create(
+                thread=thread,
+                sender=request.user,
+                content=serializer.validated_data.get("content", ""),
+                emoticon_key=serializer.validated_data.get("emoticon_key", ""),
+            )
+            if image := serializer.validated_data.get("image"):
+                FeedbackMessageAttachment.objects.create(message=message, image=image)
             FeedbackThread.objects.filter(pk=thread.pk).update(updated_at=message.created_at)
             transaction.on_commit(
                 lambda: send_web_push_async(
@@ -110,6 +117,7 @@ class FeedbackMessageView(APIView):
                 feedback_thread_id=thread.id,
             )
             publish_user_events_on_commit([request.user.id, recipient_id], "chat.rooms.changed")
+        message = FeedbackMessage.objects.select_related("sender").prefetch_related("attachments").get(pk=message.pk)
         return Response(_feedback_message_payload(message, request.user, thread), status=status.HTTP_201_CREATED)
 
 
@@ -323,15 +331,16 @@ def _feedback_message_payload(message, current_user, thread):
         sender_nickname = "개발자"
     else:
         sender_nickname = thread.user.kakao_nickname or thread.user.username
+    attachment = next(iter(message.attachments.all()), None)
     return {
         "id": message.id,
         "content": message.content,
-        "emoticon_key": "",
+        "emoticon_key": message.emoticon_key,
         "created_at": message.created_at,
         "read_at": message.read_at,
         "is_mine": is_mine,
         "sender_nickname": sender_nickname,
-        "image_url": None,
+        "image_url": attachment.image.url if attachment else None,
     }
 
 

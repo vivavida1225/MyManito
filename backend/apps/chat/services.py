@@ -17,7 +17,7 @@ from apps.accounts.services import KakaoAPIError, refresh_kakao_access_token
 from apps.realtime.events import publish_user_events_on_commit
 from apps.teams.models import Participant, Team
 
-from .models import ChatProfile, FeedbackMessage, FeedbackThread, Message, MessageAttachment, Notification
+from .models import ChatProfile, FeedbackMessage, FeedbackMessageAttachment, FeedbackThread, Message, MessageAttachment, Notification
 
 
 logger = logging.getLogger(__name__)
@@ -74,21 +74,29 @@ def get_feedback_thread_for_user(*, thread_id, user):
 
 
 def list_feedback_threads(user):
+    if user.id != DEVELOPER_USER_ID:
+        return []
+
     threads = FeedbackThread.objects.select_related("user", "developer")
-    if user.id == DEVELOPER_USER_ID:
-        threads = threads.filter(developer_id=user.id)
-    else:
-        threads = threads.filter(user=user)
+    threads = threads.filter(developer_id=user.id)
 
     rooms = []
     for thread in threads:
         latest_message = thread.messages.order_by("-created_at", "-id").first()
         is_developer = user.id == thread.developer_id
+        if latest_message and latest_message.content:
+            latest_message_preview = latest_message.content
+        elif latest_message and latest_message.emoticon_key:
+            latest_message_preview = "이모티콘을 보냈어요."
+        elif latest_message and FeedbackMessageAttachment.objects.filter(message=latest_message).exists():
+            latest_message_preview = "사진을 보냈어요."
+        else:
+            latest_message_preview = "개발자에게 의견을 남겨 보세요."
         rooms.append(
             {
                 "thread_id": thread.id,
                 "title": f"{thread.user.kakao_nickname or thread.user.username} 님의 피드백" if is_developer else "개발자에게 피드백",
-                "latest_message_preview": latest_message.content if latest_message else "개발자에게 의견을 남겨 보세요.",
+                "latest_message_preview": latest_message_preview,
                 "latest_message_at": latest_message.created_at if latest_message else thread.created_at,
                 "unread_count": FeedbackMessage.objects.filter(thread=thread, read_at__isnull=True).exclude(sender=user).count(),
             }
