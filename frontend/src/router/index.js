@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
 import { pinia } from "../stores";
+import api from "../api";
 import { useAuthStore } from "../stores/auth";
 
 const REDIRECT_PATH_KEY = "redirectPath";
@@ -141,6 +142,12 @@ router.beforeEach((to) => {
 
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return { name: "dashboard" };
+  }
+});
+
+router.afterEach((_to, _from, failure) => {
+  if (!failure) {
+    api.post("/analytics/visits/", {}, { skipAuthRefresh: true }).catch(() => {});
   }
 });
 
