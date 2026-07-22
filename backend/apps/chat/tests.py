@@ -86,6 +86,28 @@ class ChatApiTests(TestCase):
         caring_for_me_room = next(room for room in response.data["rooms"] if room["room_id"] == room_id)
         self.assertEqual(caring_for_me_room["counterpart_name"], cared_for_me.display_name)
 
+    def test_room_list_hides_caring_for_me_name_until_results_are_released(self):
+        cared_for_me = self.owner_participant.assigned_from.get()
+        caring_user = User.objects.create(
+            username="kakao_caring_user",
+            kakao_id=3000,
+            kakao_nickname="준호",
+        )
+        cared_for_me.claimed_by = caring_user
+        cared_for_me.anonymous_nickname = "밤하늘"
+        cared_for_me.save(update_fields=["claimed_by", "anonymous_nickname"])
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        response = client.get("/api/chat/rooms/")
+
+        self.assertEqual(response.status_code, 200)
+        room_id = make_room_id(self.owner_participant.id, cared_for_me.id)
+        caring_for_me_room = next(room for room in response.data["rooms"] if room["room_id"] == room_id)
+        self.assertTrue(caring_for_me_room["counterpart_claimed"])
+        self.assertIsNone(caring_for_me_room["counterpart_name"])
+        self.assertEqual(caring_for_me_room["counterpart_nickname"], "밤하늘")
+
     @patch("apps.chat.services.notify_message_recipient")
     def test_send_and_poll_messages_in_an_authorized_room(self, _notify_mock):
         client = APIClient()

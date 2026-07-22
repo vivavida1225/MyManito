@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.chat.models import Message
+from apps.chat.models import Message, Notification
 
 from .models import LeaderboardSnapshot, Participant, ScoreEvent, Team
 from .services import create_team_with_matching
@@ -160,6 +160,50 @@ class TeamParticipationTests(TestCase):
         self.assertEqual(first_response.data["participant"]["display_name"], "민지")
         self.assertIn("display_name", first_response.data["assigned_to"])
         self.assertEqual(second_response.status_code, 400)
+
+    def test_claim_notifies_only_owner_and_never_related_participants(self):
+        minji = Participant.objects.get(team=self.team, display_name="민지")
+        participant_who_cares_for_minji = Participant.objects.get(team=self.team, assigned_to=minji)
+        participant_minji_cares_for = minji.assigned_to
+        neighboring_member = User.objects.create(
+            username="kakao_neighbor",
+            kakao_id=400,
+            kakao_nickname="서연",
+        )
+        participant_who_cares_for_minji.claimed_by = self.other_member
+        participant_who_cares_for_minji.save(update_fields=["claimed_by"])
+        participant_minji_cares_for.claimed_by = neighboring_member
+        participant_minji_cares_for.save(update_fields=["claimed_by"])
+
+        client = APIClient()
+        client.force_authenticate(self.member)
+        with patch("apps.teams.services.send_web_push_async") as push_mock, patch(
+            "apps.teams.services.publish_user_events_on_commit"
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = client.post(
+                    f"/api/teams/{self.team.code}/claim/",
+                    {"participant_id": minji.id},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, 200)
+        notifications = Notification.objects.filter(team=self.team)
+        self.assertEqual(notifications.count(), 1)
+        notification = notifications.get()
+        self.assertEqual(notification.recipient, self.owner)
+        self.assertEqual(notification.kind, Notification.Kind.PARTICIPANT_CLAIMED)
+        self.assertFalse(
+            notifications.filter(
+                recipient_id__in=[self.member.id, self.other_member.id, neighboring_member.id]
+            ).exists()
+        )
+        push_mock.assert_called_once_with(
+            user_id=self.owner.id,
+            title="참여자 본인 확인 완료",
+            body="민지 님이 본인 확인을 완료했습니다.",
+            path=f"/teams/{self.team.code}",
+        )
 
     def test_existing_claim_can_retrieve_only_own_assignment(self):
         client = APIClient()

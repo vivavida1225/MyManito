@@ -417,28 +417,17 @@ def create_result_notifications(team):
 
 
 def create_claim_notifications(*, team, participant, claiming_user):
-    """참여 확인 완료 사실을 관리자와 이미 Claim한 인접 마니또에게 알린다."""
+    """참여 확인 완료 사실을 관리자에게만 알린다."""
     from apps.chat.models import Notification
 
     recipient_ids = {team.owner_id}
-    if participant.assigned_to_id and participant.assigned_to.claimed_by_id:
-        recipient_ids.add(participant.assigned_to.claimed_by_id)
-    recipient_ids.update(
-        Participant.objects.filter(team=team, assigned_to=participant, claimed_by__isnull=False)
-        .exclude(claimed_by=claiming_user)
-        .values_list("claimed_by_id", flat=True)
-    )
     recipient_ids.discard(claiming_user.id)
 
     notifications = [
         Notification(
             recipient_id=recipient_id,
             team=team,
-            kind=(
-                Notification.Kind.PARTICIPANT_CLAIMED
-                if recipient_id == team.owner_id
-                else Notification.Kind.COUNTERPART_CLAIMED
-            ),
+            kind=Notification.Kind.PARTICIPANT_CLAIMED,
             title="참여자 본인 확인 완료",
             body=f"{participant.display_name} 님이 본인 확인을 완료했습니다.",
         )
