@@ -1,7 +1,7 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework_simplejwt.backends import TokenBackend
@@ -9,6 +9,10 @@ from rest_framework_simplejwt.tokens import AccessToken
 from unittest.mock import patch
 
 from apps.accounts.models import User
+from apps.chat.models import FeedbackMessage, FeedbackThread, Message
+from apps.chat.services import make_room_id
+from apps.teams.models import Participant
+from apps.teams.services import create_team_with_matching
 from config.asgi import application
 
 from .events import publish_user_events_on_commit, user_group_name
@@ -121,3 +125,163 @@ class RealtimeConsumerTests(TestCase):
             publish.assert_not_called()
             callbacks[0]()
             publish.assert_called_once_with(self.user.id, "notifications.changed")
+
+
+@override_settings(CHANNEL_LAYERS=IN_MEMORY_CHANNEL_LAYER)
+class RealtimeChatMessageTests(TransactionTestCase):
+    reset_sequences = True
+
+    def setUp(self):
+        self.developer = User.objects.create(
+            id=1,
+            username="developer",
+            kakao_id=1,
+            kakao_nickname="개발자",
+        )
+        self.sender = User.objects.create(
+            username="realtime-sender",
+            kakao_id=2001,
+            kakao_nickname="보낸이",
+        )
+        self.recipient = User.objects.create(
+            username="realtime-recipient",
+            kakao_id=2002,
+            kakao_nickname="받는이",
+        )
+        self.team = create_team_with_matching(
+            owner=self.sender,
+            validated_data={
+                "code": "realtime-chat-team",
+                "rules": "실시간 채팅 테스트",
+                "reciprocal_ratio": 0,
+                "is_participating": True,
+                "parsed_participant_names": ["보낸이", "받는이", "참여자"],
+            },
+        )
+        sender_participant = Participant.objects.get(
+            team=self.team,
+            claimed_by=self.sender,
+        )
+        sender_participant.anonymous_nickname = "햇빛"
+        sender_participant.save(update_fields=["anonymous_nickname"])
+        self.counterpart = sender_participant.assigned_to
+        self.counterpart.claimed_by = self.recipient
+        self.counterpart.anonymous_nickname = "별빛"
+        self.counterpart.save(update_fields=["claimed_by", "anonymous_nickname"])
+        self.room_id = make_room_id(sender_participant.id, self.counterpart.id)
+        self.feedback_thread = FeedbackThread.objects.create(
+            user=self.sender,
+            developer=self.developer,
+        )
+
+    def access_token(self, user):
+        return str(AccessToken.for_user(user))
+
+    async def _connect(self, user):
+        communicator = WebsocketCommunicator(
+            application,
+            "/ws/realtime/",
+            subprotocols=["mymanito-v1", self.access_token(user)],
+        )
+        connected, _subprotocol = await communicator.connect()
+        self.assertTrue(connected)
+        return communicator
+
+    @patch("apps.chat.services.notify_message_recipient_async")
+    def test_general_chat_send_broadcasts_temp_id_without_duplicate_payload(self, _notify_mock):
+        async_to_sync(self._test_general_chat_send_broadcasts_temp_id_without_duplicate_payload)()
+
+        message = Message.objects.get(content="모바일에서도 바로 보여요")
+        self.assertEqual(message.sender.claimed_by_id, self.sender.id)
+        self.assertEqual(message.recipient.claimed_by_id, self.recipient.id)
+
+    async def _test_general_chat_send_broadcasts_temp_id_without_duplicate_payload(self):
+        sender_socket = await self._connect(self.sender)
+        recipient_socket = await self._connect(self.recipient)
+
+        await sender_socket.send_json_to(
+            {
+                "event": "chat.message.send",
+                "tempId": "temp-1001",
+                "roomId": self.room_id,
+                "content": "  모바일에서도 바로 보여요  ",
+            }
+        )
+        sender_event = await sender_socket.receive_json_from()
+        recipient_event = await recipient_socket.receive_json_from()
+
+        self.assertEqual(sender_event["event"], "chat.message.created")
+        self.assertEqual(sender_event["tempId"], "temp-1001")
+        self.assertEqual(sender_event["room_id"], self.room_id)
+        self.assertTrue(sender_event["message"]["is_mine"])
+        self.assertEqual(sender_event["message"]["content"], "모바일에서도 바로 보여요")
+        self.assertEqual(recipient_event["tempId"], "temp-1001")
+        self.assertFalse(recipient_event["message"]["is_mine"])
+        self.assertEqual(recipient_event["message"]["sender_nickname"], "햇빛")
+        self.assertEqual(sender_event["message"]["id"], recipient_event["message"]["id"])
+
+        await sender_socket.disconnect()
+        await recipient_socket.disconnect()
+
+    @patch("apps.chat.services.send_web_push_async")
+    def test_feedback_chat_send_broadcasts_temp_id_to_both_users(self, _push_mock):
+        async_to_sync(self._test_feedback_chat_send_broadcasts_temp_id_to_both_users)()
+
+        self.assertTrue(
+            FeedbackMessage.objects.filter(
+                thread=self.feedback_thread,
+                sender=self.sender,
+                content="피드백도 즉시 보여요",
+            ).exists()
+        )
+
+    async def _test_feedback_chat_send_broadcasts_temp_id_to_both_users(self):
+        sender_socket = await self._connect(self.sender)
+        developer_socket = await self._connect(self.developer)
+
+        await sender_socket.send_json_to(
+            {
+                "event": "chat.message.send",
+                "tempId": "temp-2002",
+                "feedbackThreadId": str(self.feedback_thread.id),
+                "content": "피드백도 즉시 보여요",
+            }
+        )
+        sender_event = await sender_socket.receive_json_from()
+        developer_event = await developer_socket.receive_json_from()
+
+        self.assertEqual(sender_event["event"], "chat.message.created")
+        self.assertEqual(sender_event["tempId"], "temp-2002")
+        self.assertEqual(
+            str(sender_event["feedback_thread_id"]),
+            str(self.feedback_thread.id),
+        )
+        self.assertTrue(sender_event["message"]["is_mine"])
+        self.assertEqual(developer_event["tempId"], "temp-2002")
+        self.assertFalse(developer_event["message"]["is_mine"])
+        self.assertEqual(developer_event["message"]["sender_nickname"], "보낸이")
+
+        await sender_socket.disconnect()
+        await developer_socket.disconnect()
+
+    def test_invalid_room_returns_failure_for_the_pending_message(self):
+        async_to_sync(self._test_invalid_room_returns_failure_for_the_pending_message)()
+
+    async def _test_invalid_room_returns_failure_for_the_pending_message(self):
+        sender_socket = await self._connect(self.sender)
+
+        await sender_socket.send_json_to(
+            {
+                "event": "chat.message.send",
+                "tempId": "temp-3003",
+                "roomId": "999999-1000000",
+                "content": "실패 처리",
+            }
+        )
+        failure_event = await sender_socket.receive_json_from()
+
+        self.assertEqual(failure_event["event"], "chat.message.failed")
+        self.assertEqual(failure_event["tempId"], "temp-3003")
+        self.assertIn("찾을 수 없습니다", failure_event["detail"])
+
+        await sender_socket.disconnect()

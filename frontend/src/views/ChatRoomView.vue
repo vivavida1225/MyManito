@@ -12,6 +12,7 @@ import thinkingImage from "../assets/mani_thinking.webp";
 import waitingImage from "../assets/mani_waiting.webp";
 import { DEFAULT_PROFILE_OPTIONS } from "../assets/profiles";
 import ProfileSetupModal from "../components/ProfileSetupModal.vue";
+import { useRealtimeStore } from "../stores/realtime";
 
 const props = defineProps({
   roomId: {
@@ -25,6 +26,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const realtime = useRealtimeStore();
 const messages = ref([]);
 const since = ref(null);
 const content = ref("");
@@ -68,10 +70,38 @@ function messageEndpoint() {
     : `/chat/${props.roomId}/messages/`;
 }
 
+function normalizeMessage(message) {
+  return {
+    ...message,
+    sender: message.sender || (message.is_mine ? "me" : "other"),
+    isPending: Boolean(message.isPending),
+    isFailed: Boolean(message.isFailed),
+    createdAt: message.createdAt || message.created_at,
+  };
+}
+
+function sortMessages(messageItems) {
+  return messageItems.sort((left, right) => {
+    const createdAtDifference = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    if (createdAtDifference !== 0) {
+      return createdAtDifference;
+    }
+    return String(left.id).localeCompare(String(right.id), undefined, { numeric: true });
+  });
+}
+
 function appendMessages(newMessages) {
   const existingIds = new Set(messages.value.map((message) => message.id));
-  messages.value = [...messages.value, ...newMessages.filter((message) => !existingIds.has(message.id))]
-    .sort((left, right) => left.id - right.id);
+  const additions = newMessages
+    .filter((message) => !existingIds.has(message.id))
+    .map(normalizeMessage);
+  messages.value = sortMessages([...messages.value, ...additions]);
+}
+
+function updateSince(createdAt) {
+  if (createdAt && (!since.value || new Date(createdAt) > new Date(since.value))) {
+    since.value = createdAt;
+  }
 }
 
 async function scrollToLatest() {
@@ -93,9 +123,7 @@ async function loadMessages() {
     });
     roomInfo.value = response.data.room;
     appendMessages(response.data.messages);
-    if (response.data.next_since) {
-      since.value = response.data.next_since;
-    }
+    updateSince(response.data.next_since);
     if (response.data.messages.length) {
       await scrollToLatest();
     }
@@ -211,8 +239,8 @@ function shouldShowMessageTime(messageIndex) {
   const nextMessage = messages.value[messageIndex + 1];
 
   return !nextMessage
-    || message.is_mine !== nextMessage.is_mine
-    || !isSameMinute(message.created_at, nextMessage.created_at);
+    || message.sender !== nextMessage.sender
+    || !isSameMinute(message.createdAt, nextMessage.createdAt);
 }
 
 function formatMessageTime(createdAt) {
@@ -239,7 +267,7 @@ async function postMessage({ messageContent = "", image = null, imageName = "", 
     }
     const response = await api.post(messageEndpoint(), formData, { headers: { "Content-Type": "multipart/form-data" } });
     appendMessages([response.data]);
-    since.value = response.data.created_at;
+    updateSince(response.data.created_at);
     await scrollToLatest();
     return true;
   } catch (error) {
@@ -261,6 +289,12 @@ async function sendMessage() {
     return;
   }
 
+  if (!imageFile.value) {
+    content.value = "";
+    optimisticSend(messageContent);
+    return;
+  }
+
   const isSent = await postMessage({
     messageContent,
     image: imageFile.value,
@@ -277,6 +311,61 @@ async function sendMessage() {
   }
 }
 
+function nextTempId() {
+  let timestamp = Date.now();
+  while (messages.value.some((message) => message.id === `temp-${timestamp}`)) {
+    timestamp += 1;
+  }
+  return `temp-${timestamp}`;
+}
+
+function optimisticSend(messageContent) {
+  const tempId = nextTempId();
+  const optimisticMessage = {
+    id: tempId,
+    content: messageContent,
+    sender: "me",
+    isPending: true,
+    isFailed: false,
+    createdAt: new Date().toISOString(),
+  };
+  messages.value.push(optimisticMessage);
+  scrollToLatest();
+
+  try {
+    realtime.sendChatMessage({
+      tempId,
+      content: messageContent,
+      ...(props.isFeedback
+        ? { feedbackThreadId: props.roomId }
+        : { roomId: props.roomId }),
+    });
+  } catch (error) {
+    markMessageFailed(tempId, error.message);
+  }
+}
+
+function markMessageFailed(tempId, detail = "") {
+  const message = messages.value.find((item) => item.id === tempId);
+  if (!message) {
+    return;
+  }
+  message.isPending = false;
+  message.isFailed = true;
+  if (detail) {
+    errorMessage.value = detail;
+  }
+}
+
+function retrySend(message) {
+  if (!message.isFailed) {
+    return;
+  }
+  errorMessage.value = "";
+  messages.value = messages.value.filter((item) => item.id !== message.id);
+  optimisticSend(message.content);
+}
+
 async function sendEmoticon(emoticon) {
   if (isSending.value || isCompressing.value) {
     return;
@@ -288,10 +377,58 @@ async function sendEmoticon(emoticon) {
 }
 
 function handleRealtimeMessage(event) {
-  const { room_id: roomId, feedback_thread_id: feedbackThreadId } = event.detail;
-  if ((!props.isFeedback && roomId === props.roomId) || (props.isFeedback && String(feedbackThreadId) === props.roomId)) {
-    loadMessages();
+  const {
+    room_id: roomId,
+    feedback_thread_id: feedbackThreadId,
+    tempId,
+    message,
+  } = event.detail;
+  const isCurrentRoom = (!props.isFeedback && roomId === props.roomId)
+    || (props.isFeedback && String(feedbackThreadId) === props.roomId);
+  if (!isCurrentRoom) {
+    return;
   }
+  if (!message) {
+    loadMessages();
+    return;
+  }
+
+  const normalizedMessage = normalizeMessage(message);
+  const tempMessageIndex = message.is_mine && tempId
+    ? messages.value.findIndex((item) => item.id === tempId)
+    : -1;
+  if (tempMessageIndex >= 0) {
+    const existingServerMessageIndex = messages.value.findIndex(
+      (item, index) => index !== tempMessageIndex && item.id === normalizedMessage.id,
+    );
+    if (existingServerMessageIndex >= 0) {
+      messages.value.splice(tempMessageIndex, 1);
+      Object.assign(messages.value[existingServerMessageIndex], normalizedMessage);
+    } else {
+      Object.assign(messages.value[tempMessageIndex], normalizedMessage, {
+        isPending: false,
+        isFailed: false,
+      });
+    }
+    messages.value = sortMessages([...messages.value]);
+  } else {
+    appendMessages([normalizedMessage]);
+  }
+  updateSince(normalizedMessage.createdAt);
+  scrollToLatest();
+}
+
+function handleRealtimeFailure(event) {
+  markMessageFailed(
+    event.detail.tempId,
+    event.detail.detail || "메시지를 보내지 못했습니다.",
+  );
+}
+
+function handleConnectionClosed() {
+  messages.value
+    .filter((message) => message.isPending)
+    .forEach((message) => markMessageFailed(message.id));
 }
 
 onMounted(async () => {
@@ -302,11 +439,15 @@ onMounted(async () => {
     await loadProfile();
   }
   window.addEventListener("realtime-chat-message", handleRealtimeMessage);
+  window.addEventListener("realtime-chat-message-failed", handleRealtimeFailure);
+  window.addEventListener("realtime-connection-closed", handleConnectionClosed);
 });
 
 onUnmounted(() => {
   document.body.style.overflow = previousBodyOverflow;
   window.removeEventListener("realtime-chat-message", handleRealtimeMessage);
+  window.removeEventListener("realtime-chat-message-failed", handleRealtimeFailure);
+  window.removeEventListener("realtime-connection-closed", handleConnectionClosed);
 });
 </script>
 
@@ -359,22 +500,27 @@ onUnmounted(() => {
         v-for="(message, messageIndex) in messages"
         :key="message.id"
         class="flex"
-        :class="message.is_mine ? 'justify-end' : 'justify-start'"
+        :class="message.sender === 'me' ? 'justify-end' : 'justify-start'"
       >
         <div class="max-w-[78%]">
-          <p v-if="!message.is_mine" class="mb-1 text-xs font-medium text-slate-500">{{ message.sender_nickname }}</p>
-          <div class="flex items-end gap-1" :class="message.is_mine ? 'justify-end' : 'justify-start'">
+          <p v-if="message.sender !== 'me'" class="mb-1 text-xs font-medium text-slate-500">{{ message.sender_nickname }}</p>
+          <div class="flex items-end gap-1" :class="message.sender === 'me' ? 'justify-end' : 'justify-start'">
             <time
               v-if="shouldShowMessageTime(messageIndex)"
               class="shrink-0 pb-0.5 text-[11px] leading-4 text-slate-400"
-              :class="message.is_mine ? 'order-first' : 'order-last'"
-              :datetime="message.created_at"
+              :class="message.sender === 'me' ? 'order-first' : 'order-last'"
+              :datetime="message.createdAt"
             >
-              {{ formatMessageTime(message.created_at) }}
+              {{ formatMessageTime(message.createdAt) }}
             </time>
             <div
               class="rounded-2xl px-3 py-2 text-sm leading-5"
-              :class="message.is_mine ? 'rounded-tr-sm bg-amber-300 text-slate-900' : 'rounded-tl-sm bg-white text-slate-800 shadow-sm'"
+              :class="[
+                message.sender === 'me'
+                  ? 'rounded-tr-sm bg-amber-300 text-slate-900'
+                  : 'rounded-tl-sm bg-white text-slate-800 shadow-sm',
+                { 'message-pending': message.isPending, 'message-failed': message.isFailed },
+              ]"
             >
               <img
                 v-if="message.image_url"
@@ -391,6 +537,14 @@ onUnmounted(() => {
               <p v-if="message.content" class="whitespace-pre-wrap">{{ message.content }}</p>
             </div>
           </div>
+          <button
+            v-if="message.isFailed"
+            type="button"
+            class="mt-1 block text-xs font-bold text-red-600 underline"
+            @click="retrySend(message)"
+          >
+            재전송
+          </button>
         </div>
       </div>
     </div>
@@ -470,3 +624,15 @@ onUnmounted(() => {
     />
   </section>
 </template>
+
+<style scoped>
+.message-pending {
+  opacity: 0.7;
+}
+
+.message-failed {
+  border: 1px solid #ef4444;
+  background-color: #fee2e2 !important;
+  color: #991b1b !important;
+}
+</style>

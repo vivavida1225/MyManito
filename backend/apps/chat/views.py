@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.push import send_web_push_async
 from apps.realtime.events import publish_user_events_on_commit
-from .models import FeedbackMessage, FeedbackMessageAttachment, FeedbackThread, Notification, Message
+from .models import FeedbackMessage, Notification, Message
 from .serializers import (
     ChatProfileUpdateSerializer,
     MessageCreateSerializer,
@@ -18,6 +18,7 @@ from .serializers import (
 from .services import (
     ChatRoomError,
     FeedbackError,
+    create_feedback_message,
     create_message,
     get_feedback_thread_for_user,
     get_chat_room_for_user,
@@ -92,31 +93,13 @@ class FeedbackMessageView(APIView):
 
         serializer = MessageCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        recipient_id = thread.developer_id if request.user.id == thread.user_id else thread.user_id
-        with transaction.atomic():
-            message = FeedbackMessage.objects.create(
-                thread=thread,
-                sender=request.user,
-                content=serializer.validated_data.get("content", ""),
-                emoticon_key=serializer.validated_data.get("emoticon_key", ""),
-            )
-            if image := serializer.validated_data.get("image"):
-                FeedbackMessageAttachment.objects.create(message=message, image=image)
-            FeedbackThread.objects.filter(pk=thread.pk).update(updated_at=message.created_at)
-            transaction.on_commit(
-                lambda: send_web_push_async(
-                    user_id=recipient_id,
-                    title="새 개발자 피드백",
-                    body="새 메시지가 도착했습니다.",
-                    path=f"/feedback/{thread.id}",
-                )
-            )
-            publish_user_events_on_commit(
-                [request.user.id, recipient_id],
-                "chat.message.created",
-                feedback_thread_id=thread.id,
-            )
-            publish_user_events_on_commit([request.user.id, recipient_id], "chat.rooms.changed")
+        message = create_feedback_message(
+            thread=thread,
+            sender=request.user,
+            content=serializer.validated_data.get("content", ""),
+            image=serializer.validated_data.get("image"),
+            emoticon_key=serializer.validated_data.get("emoticon_key", ""),
+        )
         message = FeedbackMessage.objects.select_related("sender").prefetch_related("attachments").get(pk=message.pk)
         return Response(_feedback_message_payload(message, request.user, thread), status=status.HTTP_201_CREATED)
 

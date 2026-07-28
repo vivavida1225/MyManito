@@ -430,7 +430,7 @@ class FeedbackChatTests(TestCase):
         self.developer_client = APIClient()
         self.developer_client.force_authenticate(self.developer)
 
-    @patch("apps.chat.views.send_web_push_async")
+    @patch("apps.chat.services.send_web_push_async")
     def test_user_and_developer_can_exchange_persistent_feedback_messages(self, _push_mock):
         create_response = self.user_client.post("/api/chat/feedback/")
 
@@ -460,7 +460,7 @@ class FeedbackChatTests(TestCase):
         cleanup_expired_ended_teams()
         self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id).exists())
 
-    @patch("apps.chat.views.send_web_push_async")
+    @patch("apps.chat.services.send_web_push_async")
     def test_feedback_messages_support_images_and_emoticons(self, _push_mock):
         thread_id = self.user_client.post("/api/chat/feedback/").data["thread_id"]
         image = SimpleUploadedFile(

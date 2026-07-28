@@ -11,7 +11,7 @@ from django.db import close_old_connections, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.accounts.push import send_web_push
+from apps.accounts.push import send_web_push, send_web_push_async
 from apps.accounts.models import User
 from apps.accounts.services import KakaoAPIError, refresh_kakao_access_token
 from apps.realtime.events import publish_user_events_on_commit
@@ -71,6 +71,76 @@ def get_feedback_thread_for_user(*, thread_id, user):
     if user.id not in {thread.user_id, thread.developer_id}:
         raise FeedbackError("이 피드백 대화방에 접근할 권한이 없습니다.")
     return thread
+
+
+@transaction.atomic
+def create_feedback_message(
+    *,
+    thread,
+    sender,
+    content,
+    image=None,
+    emoticon_key="",
+    client_temp_id=None,
+):
+    """개발자 피드백 메시지를 저장하고 커밋 후 실시간 이벤트를 발행한다."""
+    recipient_id = thread.developer_id if sender.id == thread.user_id else thread.user_id
+    message = FeedbackMessage.objects.create(
+        thread=thread,
+        sender=sender,
+        content=content,
+        emoticon_key=emoticon_key,
+    )
+    if image:
+        FeedbackMessageAttachment.objects.create(message=message, image=image)
+    FeedbackThread.objects.filter(pk=thread.pk).update(updated_at=message.created_at)
+    transaction.on_commit(
+        lambda: send_web_push_async(
+            user_id=recipient_id,
+            title="새 개발자 피드백",
+            body="새 메시지가 도착했습니다.",
+            path=f"/feedback/{thread.id}",
+        )
+    )
+
+    if client_temp_id:
+        sender_payload = _realtime_message_payload(
+            message,
+            is_mine=True,
+            sender_nickname="나",
+        )
+        recipient_nickname = (
+            thread.user.kakao_nickname or thread.user.username
+            if recipient_id == thread.developer_id
+            else "개발자"
+        )
+        recipient_payload = _realtime_message_payload(
+            message,
+            is_mine=False,
+            sender_nickname=recipient_nickname,
+        )
+        publish_user_events_on_commit(
+            [sender.id],
+            "chat.message.created",
+            feedback_thread_id=thread.id,
+            tempId=client_temp_id,
+            message=sender_payload,
+        )
+        publish_user_events_on_commit(
+            [recipient_id],
+            "chat.message.created",
+            feedback_thread_id=thread.id,
+            tempId=client_temp_id,
+            message=recipient_payload,
+        )
+    else:
+        publish_user_events_on_commit(
+            [sender.id, recipient_id],
+            "chat.message.created",
+            feedback_thread_id=thread.id,
+        )
+    publish_user_events_on_commit([sender.id, recipient_id], "chat.rooms.changed")
+    return message
 
 
 def list_feedback_threads(user):
@@ -237,7 +307,7 @@ def list_chat_rooms(user):
 
 
 @transaction.atomic
-def create_message(*, room, content, image, emoticon_key=""):
+def create_message(*, room, content, image, emoticon_key="", client_temp_id=None):
     """메시지와 첨부 이미지를 저장한 뒤, 커밋 성공 후 수신자 알림을 예약한다."""
     team = Team.objects.select_for_update().get(pk=room.team.id)
     me = Participant.objects.select_for_update().get(pk=room.me.id)
@@ -268,11 +338,35 @@ def create_message(*, room, content, image, emoticon_key=""):
     )
 
     transaction.on_commit(lambda: notify_message_recipient_async(message.id))
-    publish_user_events_on_commit(
-        [me.claimed_by_id, counterpart.claimed_by_id],
-        "chat.message.created",
-        room_id=room.room_id,
-    )
+    if client_temp_id:
+        publish_user_events_on_commit(
+            [me.claimed_by_id],
+            "chat.message.created",
+            room_id=room.room_id,
+            tempId=client_temp_id,
+            message=_realtime_message_payload(
+                message,
+                is_mine=True,
+                sender_nickname="나",
+            ),
+        )
+        publish_user_events_on_commit(
+            [counterpart.claimed_by_id],
+            "chat.message.created",
+            room_id=room.room_id,
+            tempId=client_temp_id,
+            message=_realtime_message_payload(
+                message,
+                is_mine=False,
+                sender_nickname=get_anonymous_nickname(me),
+            ),
+        )
+    else:
+        publish_user_events_on_commit(
+            [me.claimed_by_id, counterpart.claimed_by_id],
+            "chat.message.created",
+            room_id=room.room_id,
+        )
     publish_user_events_on_commit(
         [me.claimed_by_id, counterpart.claimed_by_id],
         "chat.rooms.changed",
@@ -285,6 +379,19 @@ def create_message(*, room, content, image, emoticon_key=""):
 
     award_message_score(message=message, room_id=room.room_id)
     return message
+
+
+def _realtime_message_payload(message, *, is_mine, sender_nickname):
+    return {
+        "id": message.id,
+        "content": message.content,
+        "emoticon_key": message.emoticon_key,
+        "created_at": message.created_at.isoformat(),
+        "read_at": message.read_at.isoformat() if message.read_at else None,
+        "is_mine": is_mine,
+        "sender_nickname": sender_nickname,
+        "image_url": None,
+    }
 
 
 def get_or_create_chat_profile(*, owner, counterpart):

@@ -39,7 +39,10 @@ export const useRealtimeStore = defineStore("realtime", {
       this.reconnectTimer = null;
       const socket = this.socket;
       this.socket = null;
-      socket?.close();
+      if (socket) {
+        window.dispatchEvent(new Event("realtime-connection-closed"));
+        socket.close();
+      }
     },
 
     reconnect() {
@@ -71,6 +74,7 @@ export const useRealtimeStore = defineStore("realtime", {
             return;
           }
           this.socket = null;
+          window.dispatchEvent(new Event("realtime-connection-closed"));
           if (event.code === 4401) {
             auth.logoutAndRedirect();
             return;
@@ -96,11 +100,24 @@ export const useRealtimeStore = defineStore("realtime", {
       }, delay);
     },
 
+    sendChatMessage({ tempId, content, roomId = null, feedbackThreadId = null }) {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        throw new Error("실시간 연결이 끊어져 있습니다.");
+      }
+      this.socket.send(JSON.stringify({
+        event: "chat.message.send",
+        tempId,
+        content,
+        ...(roomId ? { roomId } : { feedbackThreadId }),
+      }));
+    },
+
     handleMessage(message) {
       try {
         const event = JSON.parse(message.data);
         const eventName = {
           "chat.message.created": "realtime-chat-message",
+          "chat.message.failed": "realtime-chat-message-failed",
           "chat.rooms.changed": "realtime-chat-rooms-changed",
           "notifications.changed": "realtime-notifications-changed",
         }[event.event];
