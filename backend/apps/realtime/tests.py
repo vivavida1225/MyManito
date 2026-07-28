@@ -1,7 +1,7 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework_simplejwt.backends import TokenBackend
@@ -22,7 +22,7 @@ IN_MEMORY_CHANNEL_LAYER = {"default": {"BACKEND": "channels.layers.InMemoryChann
 
 
 @override_settings(CHANNEL_LAYERS=IN_MEMORY_CHANNEL_LAYER)
-class RealtimeConsumerTests(TestCase):
+class RealtimeConsumerTests(TransactionTestCase):
     def setUp(self):
         self.user = User.objects.create(username="realtime-user", kakao_id=1001)
         self.other_user = User.objects.create(username="other-user", kakao_id=1002)
@@ -118,12 +118,14 @@ class RealtimeConsumerTests(TestCase):
         await second.disconnect()
 
     def test_event_is_not_sent_until_transaction_commit_callback_runs(self):
-        with patch("apps.realtime.events.publish_user_event") as publish:
-            with self.captureOnCommitCallbacks(execute=False) as callbacks:
-                publish_user_events_on_commit([self.user.id], "notifications.changed")
-            self.assertEqual(len(callbacks), 1)
+        with (
+            patch("apps.realtime.events.publish_user_event") as publish,
+            patch("apps.realtime.events.transaction.on_commit") as on_commit,
+        ):
+            publish_user_events_on_commit([self.user.id], "notifications.changed")
+            on_commit.assert_called_once()
             publish.assert_not_called()
-            callbacks[0]()
+            on_commit.call_args.args[0]()
             publish.assert_called_once_with(self.user.id, "notifications.changed")
 
 
@@ -133,11 +135,11 @@ class RealtimeChatMessageTests(TransactionTestCase):
 
     def setUp(self):
         self.developer = User.objects.create(
-            id=1,
             username="developer",
             kakao_id=1,
             kakao_nickname="개발자",
         )
+        self.assertEqual(self.developer.id, 1)
         self.sender = User.objects.create(
             username="realtime-sender",
             kakao_id=2001,

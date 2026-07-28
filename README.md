@@ -78,7 +78,7 @@ MyManito는 이 문제를 해결하기 위해 만들었습니다.
 | UI/UX | Mobile-First UI, Canvas Confetti, browser-image-compression |
 | Backend | Python, Django, Django REST Framework, Simple JWT |
 | 인증·알림 | Kakao OAuth, Kakao Talk Message API |
-| 데이터·파일 | SQLite, Pillow, 로컬 미디어 볼륨 |
+| 데이터·파일 | PostgreSQL 17, psycopg 3, Pillow, 로컬 미디어 볼륨 |
 | 작업 자동화 | APScheduler |
 | 실시간·배포 | Django Channels, Redis, Daphne, Docker Compose, Nginx, Synology NAS |
 
@@ -93,7 +93,7 @@ Nginx ──────────────► /media 직접 서빙
         ▼
 Daphne ASGI + Django REST Framework + Channels
         ├── Redis 채널 레이어 (Compose 내부 전용)
-        ├── SQLite
+        ├── PostgreSQL
         ├── 로컬 media 볼륨
         ├── Kakao OAuth / Talk Message API
         └── APScheduler (보존 기간 정리)
@@ -150,6 +150,8 @@ Copy-Item frontend/.env.example frontend/.env
 | `backend/.env` | `DJANGO_SECRET_KEY` | Django 비밀 키 |
 | `backend/.env` | `JWT_SIGNING_KEY` | 서비스 JWT 전용 서명 키. 운영 환경에서는 필수이며 교체 시 기존 JWT가 모두 무효화됨 |
 | `backend/.env` | `CHANNEL_REDIS_URL` | Channels Redis 주소 (`redis://redis:6379/0`) |
+| `backend/.env` | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL 데이터베이스·사용자·비밀번호 |
+| `backend/.env` | `POSTGRES_HOST`, `POSTGRES_PORT` | 로컬은 `127.0.0.1:5432`; Compose backend는 `postgres:5432`를 자동 사용 |
 | `backend/.env` | `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` | 카카오 OAuth 설정 |
 | `backend/.env` | `KAKAO_REDIRECT_URI` | 카카오 로그인 콜백 주소 |
 | `backend/.env` | `MYMANITO_APP_URL` | 카카오 메시지 링크에 사용할 서비스 주소 |
@@ -197,7 +199,8 @@ docker compose up -d --build
 - 프론트엔드: `http://localhost:8080`
 - API: Nginx를 통해 `/api/` 경로로 접근
 - 실시간 연결: Nginx를 통해 `/ws/realtime/` 경로로 접근
-- 영속 데이터: `data/db.sqlite3`, `data/media`, `data/static`
+- 영속 데이터: `data/postgres`, `data/media`, `data/static`
+- PostgreSQL 호스트 포트는 로컬 개발용 `127.0.0.1:5432`에만 바인딩되며 외부에는 공개되지 않음
 
 Synology 역방향 프록시는 `https://mymanito.wara.synology.me`에서 `http://localhost:8080`으로 연결하고 WebSocket 업그레이드를 활성화하세요. 외부 브라우저는 `wss://mymanito.wara.synology.me/ws/realtime/`에 연결됩니다.
 
@@ -211,11 +214,14 @@ Synology 역방향 프록시는 `https://mymanito.wara.synology.me`에서 `http:
 python -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-출력값을 NAS의 `backend/.env`에 `JWT_SIGNING_KEY`로 저장한 뒤 `docker compose up -d --build`로 재배포합니다. 재배포 전에는 `data/db.sqlite3`를 백업하고 SQLite 무결성과 핵심 테이블 건수를 확인해야 합니다. 컨테이너 시작 시 토큰 블랙리스트 migration이 추가되지만 기존 사용자, Claim, 배정, 채팅, 알림 설정과 Web Push 구독은 변경하지 않습니다. 롤백하더라도 이전 JWT 키를 복원하면 폐기한 토큰이 다시 유효해지므로 절대 복원하지 않습니다.
+출력값을 NAS의 `backend/.env`에 `JWT_SIGNING_KEY`로 저장한 뒤 재배포합니다. 재배포 전에는 `pg_dump -Fc` 형식의 PostgreSQL 백업과 복구 검증을 완료해야 합니다. 롤백하더라도 이전 JWT 키를 복원하면 폐기한 토큰이 다시 유효해지므로 절대 복원하지 않습니다.
 
 ### 3. 개발 서버 실행
 
 ```powershell
+# PostgreSQL과 Redis
+docker compose up -d postgres redis
+
 # backend
 cd backend
 python -m venv venv
@@ -230,17 +236,39 @@ npm install
 npm run dev
 ```
 
-로컬에서 Django를 직접 실행할 때는 Compose 내부 Redis 이름(`redis`)을 사용할 수 없다. 별도 Redis를 호스트 포트로 실행하고 `backend/.env`에 아래 주소를 지정한다.
-
-```powershell
-docker run -d --name mymanito-local-redis -p 127.0.0.1:6379:6379 redis:7-alpine
-```
+로컬에서 Django를 직접 실행할 때는 Compose 내부 호스트 이름을 사용할 수 없으므로 `backend/.env`에 아래 주소를 지정한다.
 
 ```env
 CHANNEL_REDIS_URL=redis://127.0.0.1:6379/0
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
 ```
 
-`docker compose up -d`로 전체 서비스를 실행할 때는 Compose가 `redis://redis:6379/0`을 백엔드에 자동 주입하므로 별도 설정이 필요 없다.
+`docker compose up -d`로 전체 서비스를 실행할 때는 Compose가 Redis와 PostgreSQL의 내부 호스트 이름을 backend에 자동 주입한다.
+
+### SQLite에서 PostgreSQL로 최초 이관
+
+서비스를 중단하고 최신 SQLite를 `data/db.sqlite3`에 둔 뒤, `backend/.env`에 PostgreSQL 변수를 설정한다. 기존 JWT·Django·Kakao·Firebase·VAPID 키는 변경하지 않는다.
+
+```sh
+sh scripts/migrate_sqlite_to_postgres.sh
+```
+
+이 스크립트는 다음 작업을 수행한다.
+
+- SQLite sidecar 파일과 PostgreSQL 대상 디렉터리를 사전 검사
+- SQLite 및 미디어를 `data/migration-backups`에 별도 백업
+- PostgreSQL migration 적용과 숫자 PK 유지 데이터 적재
+- 모델별 건수·canonical SHA-256·외래키·sequence·미디어 검증
+- `pg_dump -Fc` 생성 후 임시 데이터베이스 restore 검증
+
+성공하더라도 backend/frontend는 자동으로 시작하지 않는다. 출력된 검증 결과를 확인한 후에만 아래 명령으로 서비스를 시작한다.
+
+```sh
+docker compose up -d backend frontend
+```
+
+`data/db.sqlite3`, migration 백업, 최초 PostgreSQL dump는 최소 7일 동안 보관한다. 서비스 재개 후 PostgreSQL에 새 데이터가 기록되면 SQLite로 단순 복귀해서는 안 된다.
 
 ## 검증 명령
 

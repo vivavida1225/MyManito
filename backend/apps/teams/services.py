@@ -115,7 +115,6 @@ def claim_participant(*, team, user, participant_id):
     try:
         participant = (
             Participant.objects.select_for_update()
-            .select_related("assigned_to")
             .get(pk=participant_id, team=team)
         )
     except Participant.DoesNotExist as error:

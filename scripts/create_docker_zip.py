@@ -17,6 +17,11 @@ EXCLUDED_DIRECTORIES = {
     "venv",
 }
 EXCLUDED_DATABASE_SUFFIXES = (".sqlite3", ".sqlite3-journal", ".sqlite3-shm", ".sqlite3-wal")
+EXCLUDED_POSTGRES_DUMP_SUFFIXES = (".dump", ".backup")
+EXCLUDED_RELATIVE_DIRECTORIES = {
+    Path("data/migration-backups"),
+    Path("data/postgres"),
+}
 
 
 def should_exclude(path: Path, archive_path: Path) -> bool:
@@ -25,7 +30,14 @@ def should_exclude(path: Path, archive_path: Path) -> bool:
         return True
     if any(part in EXCLUDED_DIRECTORIES for part in relative_path.parts):
         return True
+    if any(
+        relative_path == directory or directory in relative_path.parents
+        for directory in EXCLUDED_RELATIVE_DIRECTORIES
+    ):
+        return True
     if path.is_file() and path.name.endswith(EXCLUDED_DATABASE_SUFFIXES):
+        return True
+    if path.is_file() and path.name.endswith(EXCLUDED_POSTGRES_DUMP_SUFFIXES):
         return True
     return (
         path.parent == PROJECT_ROOT

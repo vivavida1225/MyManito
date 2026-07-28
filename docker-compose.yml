@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    env_file:
+      - ./backend/.env
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: always
+
   redis:
     image: redis:7-alpine
     healthcheck:
@@ -14,14 +29,16 @@ services:
     env_file:
       - ./backend/.env
     volumes:
-      - ./data/db.sqlite3:/app/db.sqlite3
       - ./data/media:/app/media
       - ./data/static:/app/staticfiles
     expose:
       - "8000"
     environment:
       CHANNEL_REDIS_URL: redis://redis:6379/0
+      POSTGRES_HOST: postgres
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     command: sh -c "python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec daphne -b 0.0.0.0 -p 8000 config.asgi:application"

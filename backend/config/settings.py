@@ -82,10 +82,35 @@ TEMPLATES = [
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "mymanito"),
+        "USER": os.environ.get("POSTGRES_USER", "mymanito"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 0,
+        "OPTIONS": {
+            "connect_timeout": int(
+                os.environ.get("POSTGRES_CONNECT_TIMEOUT", "5")
+            ),
+        },
     }
 }
+if not DATABASES["default"]["PASSWORD"]:
+    raise ImproperlyConfigured("POSTGRES_PASSWORD 환경변수를 설정해 주세요.")
+
+LEGACY_SQLITE_PATH = os.environ.get("LEGACY_SQLITE_PATH", "")
+if LEGACY_SQLITE_PATH:
+    legacy_sqlite_path = Path(LEGACY_SQLITE_PATH).resolve()
+    if not legacy_sqlite_path.is_file():
+        raise ImproperlyConfigured(
+            f"LEGACY_SQLITE_PATH 파일을 찾을 수 없습니다: {legacy_sqlite_path}"
+        )
+    DATABASES["legacy"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": f"{legacy_sqlite_path.as_uri()}?mode=ro",
+        "OPTIONS": {"uri": True},
+    }
 
 AUTH_PASSWORD_VALIDATORS = []
 LANGUAGE_CODE = "ko-kr"
@@ -95,7 +120,9 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path(
+    os.environ.get("DJANGO_MEDIA_ROOT") or BASE_DIR / "media"
+).resolve()
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
