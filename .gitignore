@@ -32,3 +32,5 @@ MyManito-docker-*.zip
 .idea/
 .DS_Store
 Thumbs.db
+
+NAS_terminal_guide.md
