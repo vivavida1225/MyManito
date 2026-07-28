@@ -37,6 +37,23 @@ export async function subscribeIosWebPush() {
   });
 }
 
+export async function unsubscribeIosWebPush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) {
+    return;
+  }
+
+  await api.delete("/accounts/ios-web-push-subscriptions/", {
+    data: { endpoint: subscription.endpoint },
+  });
+  await subscription.unsubscribe();
+}
+
 function base64UrlToUint8Array(value) {
   const padded = `${value}${"=".repeat((4 - value.length % 4) % 4)}`;
   const base64 = padded.replace(/-/g, "+").replace(/_/g, "/");

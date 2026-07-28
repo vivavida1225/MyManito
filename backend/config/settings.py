@@ -3,6 +3,7 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 
@@ -26,6 +27,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "channels",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "apps.analytics.apps.AnalyticsConfig",
     "apps.accounts.apps.AccountsConfig",
     "apps.teams.apps.TeamsConfig",
@@ -98,6 +100,15 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
 
+JWT_SIGNING_KEY = os.environ.get("JWT_SIGNING_KEY", "").strip()
+if not JWT_SIGNING_KEY:
+    if DEBUG or "test" in sys.argv:
+        JWT_SIGNING_KEY = SECRET_KEY
+    else:
+        raise ImproperlyConfigured(
+            "운영 환경에서는 JWT_SIGNING_KEY를 반드시 설정해야 합니다."
+        )
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -108,8 +119,13 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=30),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=60),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
+    "SIGNING_KEY": JWT_SIGNING_KEY,
+    "USER_ID_FIELD": "kakao_id",
+    "USER_ID_CLAIM": "kakao_id",
 }
 
 # Kakao Developers > App settings > Platform key/Redirect URI values.

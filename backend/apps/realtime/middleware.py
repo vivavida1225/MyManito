@@ -1,9 +1,8 @@
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import AnonymousUser
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.tokens import AccessToken
-
-from apps.accounts.models import User
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
 
 SERVICE_SUBPROTOCOL = "mymanito-v1"
@@ -19,10 +18,11 @@ def _requested_protocols(scope):
 
 @database_sync_to_async
 def _user_from_access_token(raw_token):
+    authentication = JWTAuthentication()
     try:
-        token = AccessToken(raw_token)
-        return User.objects.get(pk=token["user_id"], is_active=True)
-    except (TokenError, User.DoesNotExist, KeyError):
+        token = authentication.get_validated_token(raw_token)
+        return authentication.get_user(token)
+    except (AuthenticationFailed, InvalidToken, TokenError):
         return AnonymousUser()
 
 

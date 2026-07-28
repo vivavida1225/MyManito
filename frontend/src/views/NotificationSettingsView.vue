@@ -3,8 +3,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import api from "../api";
-import { enableWebPush, syncWebPushDevice, webPushPermission } from "../firebase";
-import { isIosStandalone, subscribeIosWebPush } from "../iosWebPush";
+import { disableWebPush, enableWebPush, syncWebPushDevice, webPushPermission } from "../firebase";
+import { isIosStandalone, subscribeIosWebPush, unsubscribeIosWebPush } from "../iosWebPush";
 import { useAuthStore } from "../stores/auth";
 
 const platform = ref("ANDROID");
@@ -16,6 +16,7 @@ const errorMessage = ref("");
 const kakaoNotificationEnabled = ref(true);
 const isUpdatingKakaoNotification = ref(false);
 const isOpeningFeedback = ref(false);
+const isLoggingOut = ref(false);
 const consentError = ref("");
 const route = useRoute();
 const router = useRouter();
@@ -150,6 +151,37 @@ async function openFeedback() {
   }
 }
 
+async function logoutCurrentDevice() {
+  if (isLoggingOut.value) {
+    return;
+  }
+
+  isLoggingOut.value = true;
+  try {
+    try {
+      if (platform.value === "IOS") {
+        await unsubscribeIosWebPush();
+      } else {
+        await disableWebPush();
+      }
+    } catch {
+      // 기기 구독 해제 실패가 서비스 로그아웃을 막아서는 안 된다.
+    }
+
+    try {
+      if (auth.refreshToken) {
+        await api.post("/accounts/logout/", { refresh: auth.refreshToken });
+      }
+    } catch {
+      // 서버 폐기 실패와 무관하게 현재 브라우저의 세션은 반드시 제거한다.
+    }
+  } finally {
+    auth.logout();
+    isLoggingOut.value = false;
+    await router.replace({ name: "home" });
+  }
+}
+
 onMounted(loadSettings);
 </script>
 
@@ -262,6 +294,20 @@ onMounted(loadSettings);
         >
           {{ isOpeningFeedback ? "대화방 여는 중..." : "개발자에게 피드백" }}
         </button>
+      </div>
+
+      <div class="mt-8 border-t border-slate-200 pt-6">
+        <button
+          type="button"
+          class="w-full rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-extrabold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+          :disabled="isLoggingOut"
+          @click="logoutCurrentDevice"
+        >
+          {{ isLoggingOut ? "로그아웃 중..." : "현재 기기에서 로그아웃" }}
+        </button>
+        <p class="mt-2 text-center text-xs leading-5 text-slate-500">
+          다른 기기의 로그인과 알림 설정에는 영향을 주지 않아요.
+        </p>
       </div>
     </template>
   </section>

@@ -12,14 +12,6 @@ const api = axios.create({
 
 let refreshPromise = null;
 
-function logoutAndRedirect(auth) {
-  auth.logout();
-  if (window.location.pathname !== "/") {
-    const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    window.location.assign(`/?redirect=${encodeURIComponent(currentPath)}`);
-  }
-}
-
 api.interceptors.request.use((config) => {
   const auth = useAuthStore(pinia);
   auth.initialize();
@@ -47,7 +39,7 @@ api.interceptors.response.use(
     }
 
     if (!auth.refreshToken) {
-      logoutAndRedirect(auth);
+      auth.logoutAndRedirect();
       return Promise.reject(error);
     }
 
@@ -71,7 +63,7 @@ api.interceptors.response.use(
       originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       return api(originalRequest);
     } catch (refreshError) {
-      logoutAndRedirect(auth);
+      auth.logoutAndRedirect();
       return Promise.reject(refreshError);
     }
   },

@@ -1,15 +1,21 @@
+from django.contrib.auth.models import update_last_login
 from django.db import transaction
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.settings import api_settings
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 
 from .models import IOSWebPushSubscription, User, WebPushDevice
 from .serializers import (
+    IOSWebPushSubscriptionDeleteSerializer,
     IOSWebPushSubscriptionSerializer,
     KakaoAuthorizationCodeSerializer,
     NotificationSettingsSerializer,
+    ServiceLogoutSerializer,
     WebPushDeviceSerializer,
 )
 from .services import (
@@ -69,6 +75,7 @@ class KakaoLoginView(APIView):
                 {"detail": "카카오 닉네임, 프로필 사진, 이메일 정보를 확인할 수 없습니다."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        update_last_login(None, user)
         refresh = RefreshToken.for_user(user)
 
         return Response(
@@ -122,6 +129,56 @@ class KakaoLoginView(APIView):
             ]
         )
         return user
+
+
+class ServiceLogoutView(APIView):
+    """현재 서비스 refresh JWT만 폐기한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ServiceLogoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        raw_refresh = serializer.validated_data["refresh"]
+
+        try:
+            token = UntypedToken(raw_refresh)
+        except TokenError:
+            return Response(
+                {"detail": "유효하지 않은 refresh 토큰입니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if token.get(api_settings.TOKEN_TYPE_CLAIM) != RefreshToken.token_type:
+            return Response(
+                {"detail": "refresh 토큰이 필요합니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if str(token.get(api_settings.USER_ID_CLAIM)) != str(request.user.kakao_id):
+            return Response(
+                {"detail": "다른 사용자의 refresh 토큰은 폐기할 수 없습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        token_jti = token.get(api_settings.JTI_CLAIM)
+        if not token_jti:
+            return Response(
+                {"detail": "토큰 식별 정보를 확인할 수 없습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if BlacklistedToken.objects.filter(token__jti=token_jti).exists():
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        try:
+            RefreshToken(raw_refresh).blacklist()
+        except TokenError:
+            if BlacklistedToken.objects.filter(token__jti=token_jti).exists():
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response(
+                {"detail": "refresh 토큰을 폐기하지 못했습니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WebPushDeviceView(APIView):
@@ -183,4 +240,13 @@ class IOSWebPushSubscriptionView(APIView):
             endpoint=serializer.validated_data["endpoint"],
             defaults={"user": request.user, **serializer.validated_data},
         )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def delete(self, request):
+        serializer = IOSWebPushSubscriptionDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        IOSWebPushSubscription.objects.filter(
+            user=request.user,
+            endpoint=serializer.validated_data["endpoint"],
+        ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

@@ -85,5 +85,13 @@ export const useAuthStore = defineStore("auth", {
       sessionStorage.removeItem(STORAGE_KEY);
       window.dispatchEvent(new Event("auth-logout"));
     },
+
+    logoutAndRedirect() {
+      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      this.logout();
+      if (window.location.pathname !== "/") {
+        window.location.assign(`/?redirect=${encodeURIComponent(currentPath)}`);
+      }
+    },
   },
 });

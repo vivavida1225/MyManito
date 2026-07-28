@@ -148,6 +148,7 @@ Copy-Item frontend/.env.example frontend/.env
 | 파일 | 변수 | 설명 |
 | --- | --- | --- |
 | `backend/.env` | `DJANGO_SECRET_KEY` | Django 비밀 키 |
+| `backend/.env` | `JWT_SIGNING_KEY` | 서비스 JWT 전용 서명 키. 운영 환경에서는 필수이며 교체 시 기존 JWT가 모두 무효화됨 |
 | `backend/.env` | `CHANNEL_REDIS_URL` | Channels Redis 주소 (`redis://redis:6379/0`) |
 | `backend/.env` | `KAKAO_REST_API_KEY`, `KAKAO_CLIENT_SECRET` | 카카오 OAuth 설정 |
 | `backend/.env` | `KAKAO_REDIRECT_URI` | 카카오 로그인 콜백 주소 |
@@ -199,6 +200,18 @@ docker compose up -d --build
 - 영속 데이터: `data/db.sqlite3`, `data/media`, `data/static`
 
 Synology 역방향 프록시는 `https://mymanito.wara.synology.me`에서 `http://localhost:8080`으로 연결하고 WebSocket 업그레이드를 활성화하세요. 외부 브라우저는 `wss://mymanito.wara.synology.me/ws/realtime/`에 연결됩니다.
+
+### 서비스 JWT 서명 키 교체
+
+서비스 JWT는 Django 비밀 키와 분리된 `JWT_SIGNING_KEY`로 서명합니다. 운영 환경에서는 이 값이 없으면 백엔드가 시작되지 않습니다. 브라우저를 닫는 것만으로는 로그아웃되지 않으며, 저장된 refresh JWT로 최대 30일 동안 access JWT를 자동 재발급합니다.
+
+보안 사고로 기존 사용자를 모두 로그아웃시킬 때는 운영 DB 파일과 `DJANGO_SECRET_KEY`를 바꾸지 말고 새 JWT 키만 생성합니다.
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+```
+
+출력값을 NAS의 `backend/.env`에 `JWT_SIGNING_KEY`로 저장한 뒤 `docker compose up -d --build`로 재배포합니다. 재배포 전에는 `data/db.sqlite3`를 백업하고 SQLite 무결성과 핵심 테이블 건수를 확인해야 합니다. 컨테이너 시작 시 토큰 블랙리스트 migration이 추가되지만 기존 사용자, Claim, 배정, 채팅, 알림 설정과 Web Push 구독은 변경하지 않습니다. 롤백하더라도 이전 JWT 키를 복원하면 폐기한 토큰이 다시 유효해지므로 절대 복원하지 않습니다.
 
 ### 3. 개발 서버 실행
 

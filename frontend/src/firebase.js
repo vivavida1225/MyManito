@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
+import { deleteToken, getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 
 import api from "./api";
 
@@ -55,6 +55,24 @@ export async function syncWebPushDevice() {
   await api.post("/accounts/web-push-devices/", { token });
   startForegroundListener(messaging);
   return true;
+}
+
+export async function disableWebPush() {
+  if (webPushPermission() !== "granted" || !(await isSupported())) {
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration?.active) {
+    return;
+  }
+
+  const messaging = getMessaging(firebaseApp);
+  const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
+  if (token) {
+    await api.delete("/accounts/web-push-devices/", { data: { token } });
+  }
+  await deleteToken(messaging);
 }
 
 function startForegroundListener(messaging) {

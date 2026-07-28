@@ -5,6 +5,10 @@ class KakaoAuthorizationCodeSerializer(serializers.Serializer):
     authorization_code = serializers.CharField(max_length=2048, trim_whitespace=True)
 
 
+class ServiceLogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField(max_length=4096, trim_whitespace=True)
+
+
 class WebPushDeviceSerializer(serializers.Serializer):
     token = serializers.CharField(max_length=4096, trim_whitespace=True)
 
@@ -23,3 +27,7 @@ class IOSWebPushSubscriptionSerializer(serializers.Serializer):
     endpoint = serializers.URLField(max_length=2048)
     p256dh = serializers.CharField(max_length=255)
     auth = serializers.CharField(max_length=255)
+
+
+class IOSWebPushSubscriptionDeleteSerializer(serializers.Serializer):
+    endpoint = serializers.URLField(max_length=2048)

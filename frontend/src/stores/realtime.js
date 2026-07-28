@@ -66,11 +66,15 @@ export const useRealtimeStore = defineStore("realtime", {
           window.dispatchEvent(new Event("realtime-notifications-changed"));
         };
         socket.onmessage = (message) => this.handleMessage(message);
-        socket.onclose = () => {
+        socket.onclose = (event) => {
           if (this.socket !== socket) {
             return;
           }
           this.socket = null;
+          if (event.code === 4401) {
+            auth.logoutAndRedirect();
+            return;
+          }
           this.scheduleReconnect();
         };
         socket.onerror = () => socket.close();

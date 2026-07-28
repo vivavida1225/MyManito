@@ -2,7 +2,10 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
 from django.test import TestCase, override_settings
-from rest_framework_simplejwt.tokens import RefreshToken
+from django.utils import timezone
+from datetime import timedelta
+from rest_framework_simplejwt.backends import TokenBackend
+from rest_framework_simplejwt.tokens import AccessToken
 from unittest.mock import patch
 
 from apps.accounts.models import User
@@ -30,7 +33,7 @@ class RealtimeConsumerTests(TestCase):
         return communicator, connected, subprotocol
 
     def access_token(self, user):
-        return str(RefreshToken.for_user(user).access_token)
+        return str(AccessToken.for_user(user))
 
     def test_valid_service_jwt_connects_with_protocol(self):
         async_to_sync(self._test_valid_service_jwt_connects_with_protocol)()
@@ -51,6 +54,40 @@ class RealtimeConsumerTests(TestCase):
         )
         self.assertFalse(invalid_connected)
         self.assertFalse(missing_protocol_connected)
+
+    def test_reused_database_id_and_retired_signing_key_are_rejected(self):
+        async_to_sync(self._test_reused_database_id_and_retired_signing_key_are_rejected)()
+
+    async def _test_reused_database_id_and_retired_signing_key_are_rejected(self):
+        original_id = self.user.id
+        original_token = self.access_token(self.user)
+        await self.user.adelete()
+        await User.objects.acreate(
+            id=original_id,
+            username="replacement-realtime-user",
+            kakao_id=9001,
+        )
+        _communicator, reused_id_connected, _subprotocol = await self._connect(original_token)
+
+        retired_backend = TokenBackend(
+            algorithm="HS256",
+            signing_key="retired-signing-key-with-at-least-32-bytes",
+        )
+        retired_token = retired_backend.encode(
+            {
+                "token_type": "access",
+                "exp": int((timezone.now() + timedelta(minutes=5)).timestamp()),
+                "iat": int(timezone.now().timestamp()),
+                "jti": "retired-realtime-token-jti",
+                "kakao_id": self.other_user.kakao_id,
+            }
+        )
+        _communicator, retired_key_connected, _subprotocol = await self._connect(
+            retired_token
+        )
+
+        self.assertFalse(reused_id_connected)
+        self.assertFalse(retired_key_connected)
 
     def test_user_events_are_isolated_and_cover_realtime_event_types(self):
         async_to_sync(self._test_user_events_are_isolated_and_cover_realtime_event_types)()
