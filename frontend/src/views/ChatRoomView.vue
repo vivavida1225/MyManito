@@ -325,6 +325,21 @@ async function sendMessage() {
   }
 }
 
+function handleContentKeydown(event) {
+  const isTouchKeyboard = window.matchMedia("(pointer: coarse)").matches;
+  if (
+    event.key !== "Enter"
+    || event.shiftKey
+    || event.isComposing
+    || isTouchKeyboard
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  sendMessage();
+}
+
 function nextTempId() {
   let timestamp = Date.now();
   while (messages.value.some((message) => message.id === `temp-${timestamp}`)) {
@@ -615,10 +630,14 @@ onUnmounted(() => {
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 14s1.2 2 4 2 4-2 4-2" /><path d="M9 9h.01M15 9h.01" stroke-linecap="round" /></svg>
         </button>
-        <input
+        <textarea
           v-model="content"
-          class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+          rows="1"
+          enterkeyhint="enter"
+          class="max-h-32 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+          style="field-sizing: content"
           :placeholder="isFeedback ? '개발자에게 의견을 남겨 주세요.' : ''"
+          @keydown="handleContentKeydown"
         />
         <button
           type="submit"
