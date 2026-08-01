@@ -23,6 +23,7 @@ function formatCreatedAt(createdAt) {
 function notificationIcon(kind) {
   return {
     MESSAGE: "💌",
+    FEEDBACK_MESSAGE: "💬",
     COUNTERPART_CLAIMED: "🙌",
     PARTICIPANT_CLAIMED: "✅",
     DDAY: "📅",
@@ -46,6 +47,19 @@ async function loadNotifications() {
 }
 
 async function openNotification(notification) {
+  if (notification.kind === "MESSAGE" && notification.data?.room_id) {
+    await router.push({ name: "chat-room", params: { roomId: notification.data.room_id } });
+    return;
+  }
+
+  if (notification.kind === "FEEDBACK_MESSAGE" && notification.data?.feedback_thread_id) {
+    await router.push({
+      name: "feedback-room",
+      params: { threadId: notification.data.feedback_thread_id },
+    });
+    return;
+  }
+
   if (!notification.is_read) {
     try {
       await api.post(`/notifications/${notification.id}/read/`);
@@ -57,17 +71,14 @@ async function openNotification(notification) {
     }
   }
 
-  if (notification.kind === "MESSAGE" && notification.data?.room_id) {
-    await router.push({ name: "chat-room", params: { roomId: notification.data.room_id } });
-    return;
-  }
-
   if (notification.kind === "RESULT_AVAILABLE") {
     await router.push({ name: "team-reveal", params: { teamCode: notification.team_code } });
     return;
   }
 
-  await router.push({ name: "team-home", params: { teamCode: notification.team_code } });
+  if (notification.team_code) {
+    await router.push({ name: "team-home", params: { teamCode: notification.team_code } });
+  }
 }
 
 async function markAllAsRead() {
@@ -165,7 +176,9 @@ onUnmounted(() => {
             <span v-if="!notification.is_read" class="h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-label="읽지 않음" />
           </span>
           <span class="mt-1 block text-sm leading-5 text-slate-500">{{ notification.body }}</span>
-          <span class="mt-1 block text-xs text-slate-400">{{ notification.team_code }} · {{ formatCreatedAt(notification.created_at) }}</span>
+          <span class="mt-1 block text-xs text-slate-400">
+            <template v-if="notification.team_code">{{ notification.team_code }} · </template>{{ formatCreatedAt(notification.created_at) }}
+          </span>
         </span>
         <span class="text-lg text-slate-400" aria-hidden="true">›</span>
       </button>

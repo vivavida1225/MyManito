@@ -70,6 +70,20 @@ function messageEndpoint() {
     : `/chat/${props.roomId}/messages/`;
 }
 
+function readEndpoint() {
+  return props.isFeedback
+    ? `/chat/feedback/${props.roomId}/read/`
+    : `/chat/${props.roomId}/read/`;
+}
+
+async function markCurrentRoomAsRead() {
+  try {
+    await api.post(readEndpoint());
+  } catch {
+    // 읽음 처리 실패가 실시간 메시지 표시를 막지 않게 하고 다음 조회에서 재시도한다.
+  }
+}
+
 function normalizeMessage(message) {
   return {
     ...message,
@@ -376,7 +390,7 @@ async function sendEmoticon(emoticon) {
   }
 }
 
-function handleRealtimeMessage(event) {
+async function handleRealtimeMessage(event) {
   const {
     room_id: roomId,
     feedback_thread_id: feedbackThreadId,
@@ -389,7 +403,7 @@ function handleRealtimeMessage(event) {
     return;
   }
   if (!message) {
-    loadMessages();
+    await loadMessages();
     return;
   }
 
@@ -415,7 +429,10 @@ function handleRealtimeMessage(event) {
     appendMessages([normalizedMessage]);
   }
   updateSince(normalizedMessage.createdAt);
-  scrollToLatest();
+  await scrollToLatest();
+  if (!normalizedMessage.is_mine) {
+    await markCurrentRoomAsRead();
+  }
 }
 
 function handleRealtimeFailure(event) {

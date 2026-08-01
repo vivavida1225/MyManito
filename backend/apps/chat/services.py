@@ -94,6 +94,14 @@ def create_feedback_message(
     if image:
         FeedbackMessageAttachment.objects.create(message=message, image=image)
     FeedbackThread.objects.filter(pk=thread.pk).update(updated_at=message.created_at)
+    Notification.objects.create(
+        recipient_id=recipient_id,
+        feedback_message=message,
+        kind=Notification.Kind.FEEDBACK_MESSAGE,
+        title="새 개발자 피드백",
+        body="새 메시지가 도착했습니다.",
+        data={"feedback_thread_id": thread.id},
+    )
     transaction.on_commit(
         lambda: send_web_push_async(
             user_id=recipient_id,
@@ -140,6 +148,7 @@ def create_feedback_message(
             feedback_thread_id=thread.id,
         )
     publish_user_events_on_commit([sender.id, recipient_id], "chat.rooms.changed")
+    publish_user_events_on_commit([recipient_id], "notifications.changed")
     return message
 
 
@@ -228,6 +237,60 @@ def get_chat_room_for_user(*, room_id, user):
         raise ChatRoomError("종료된 채팅방의 7일 보관 기간이 끝났습니다.")
 
     return ChatRoom(team=me.team, me=me, counterpart=counterpart)
+
+
+@transaction.atomic
+def mark_chat_room_as_read(*, room, user):
+    """현재 사용자가 받은 일반 채팅 메시지와 방 알림을 함께 읽음 처리한다."""
+    now = timezone.now()
+    marked_message_count = Message.objects.filter(
+        team=room.team,
+        sender=room.counterpart,
+        recipient=room.me,
+        read_at__isnull=True,
+    ).update(read_at=now)
+    marked_notification_count = Notification.objects.filter(
+        recipient=user,
+        kind=Notification.Kind.MESSAGE,
+        data__room_id=room.room_id,
+        is_read=False,
+    ).update(is_read=True, read_at=now)
+
+    if marked_message_count:
+        publish_user_events_on_commit([user.id], "chat.rooms.changed")
+    if marked_notification_count:
+        publish_user_events_on_commit([user.id], "notifications.changed")
+
+    return {
+        "marked_message_count": marked_message_count,
+        "marked_notification_count": marked_notification_count,
+    }
+
+
+@transaction.atomic
+def mark_feedback_thread_as_read(*, thread, user):
+    """현재 사용자가 받은 피드백 메시지와 대화방 알림을 함께 읽음 처리한다."""
+    now = timezone.now()
+    marked_message_count = FeedbackMessage.objects.filter(
+        thread=thread,
+        read_at__isnull=True,
+    ).exclude(sender=user).update(read_at=now)
+    marked_notification_count = Notification.objects.filter(
+        recipient=user,
+        kind=Notification.Kind.FEEDBACK_MESSAGE,
+        feedback_message__thread=thread,
+        is_read=False,
+    ).update(is_read=True, read_at=now)
+
+    if marked_message_count:
+        publish_user_events_on_commit([user.id], "chat.rooms.changed")
+    if marked_notification_count:
+        publish_user_events_on_commit([user.id], "notifications.changed")
+
+    return {
+        "marked_message_count": marked_message_count,
+        "marked_notification_count": marked_notification_count,
+    }
 
 
 def list_chat_rooms(user):

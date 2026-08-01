@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
+from importlib import import_module
 import json
 import os
 import tempfile
 from unittest.mock import Mock, patch
 
+from django.apps import apps as django_apps
 from django.test import TestCase
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -16,7 +18,7 @@ from apps.teams.leaderboard_services import award_message_score
 from apps.teams.services import create_team_with_matching
 
 from .models import ChatProfile, FeedbackMessage, FeedbackMessageAttachment, FeedbackThread, Message, MessageAttachment, Notification
-from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams
+from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams, cleanup_expired_notifications
 from .services import DEFAULT_ANONYMOUS_NICKNAMES, make_room_id, notify_message_recipient
 
 
@@ -298,6 +300,110 @@ class ChatApiTests(TestCase):
         self.assertEqual(read_response.status_code, 204)
         self.assertTrue(Notification.objects.get(pk=notification_id).is_read)
 
+    def test_opening_room_marks_only_that_rooms_messages_and_notifications_as_read(self):
+        incoming_message = Message.objects.create(
+            team=self.team,
+            sender=self.counterpart,
+            recipient=self.owner_participant,
+            content="방에 들어가면 읽는 메시지",
+        )
+        room_notifications = [
+            Notification.objects.create(
+                recipient=self.owner,
+                team=self.team,
+                message=incoming_message,
+                kind=Notification.Kind.MESSAGE,
+                title=f"같은 방 알림 {index}",
+                data={"room_id": self.room_id},
+            )
+            for index in range(2)
+        ]
+        unrelated_notification = Notification.objects.create(
+            recipient=self.owner,
+            team=self.team,
+            kind=Notification.Kind.MESSAGE,
+            title="다른 방 알림",
+            data={"room_id": "999-1000"},
+        )
+        other_users_notification = Notification.objects.create(
+            recipient=self.recipient_user,
+            team=self.team,
+            message=incoming_message,
+            kind=Notification.Kind.MESSAGE,
+            title="다른 사용자 알림",
+            data={"room_id": self.room_id},
+        )
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        response = client.get(f"/api/chat/{self.room_id}/messages/")
+
+        self.assertEqual(response.status_code, 200)
+        incoming_message.refresh_from_db()
+        self.assertIsNotNone(incoming_message.read_at)
+        self.assertFalse(
+            Notification.objects.filter(
+                pk__in=[notification.pk for notification in room_notifications],
+                is_read=False,
+            ).exists()
+        )
+        self.assertFalse(
+            Notification.objects.filter(
+                pk__in=[notification.pk for notification in room_notifications],
+                read_at__isnull=True,
+            ).exists()
+        )
+        unrelated_notification.refresh_from_db()
+        other_users_notification.refresh_from_db()
+        self.assertFalse(unrelated_notification.is_read)
+        self.assertFalse(other_users_notification.is_read)
+
+    def test_room_read_endpoint_is_idempotent(self):
+        incoming_message = Message.objects.create(
+            team=self.team,
+            sender=self.counterpart,
+            recipient=self.owner_participant,
+            content="실시간 수신 메시지",
+        )
+        Notification.objects.create(
+            recipient=self.owner,
+            team=self.team,
+            message=incoming_message,
+            kind=Notification.Kind.MESSAGE,
+            title="실시간 알림",
+            data={"room_id": self.room_id},
+        )
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        first_response = client.post(f"/api/chat/{self.room_id}/read/")
+        second_response = client.post(f"/api/chat/{self.room_id}/read/")
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_response.data["marked_message_count"], 1)
+        self.assertEqual(first_response.data["marked_notification_count"], 1)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.data["marked_message_count"], 0)
+        self.assertEqual(second_response.data["marked_notification_count"], 0)
+
+    def test_room_read_endpoint_rejects_an_outsider_without_marking_notifications(self):
+        notification = Notification.objects.create(
+            recipient=self.owner,
+            team=self.team,
+            kind=Notification.Kind.MESSAGE,
+            title="접근할 수 없는 방 알림",
+            data={"room_id": self.room_id},
+        )
+        outsider = User.objects.create(username="chat-outsider", kakao_id=2999)
+        client = APIClient()
+        client.force_authenticate(outsider)
+
+        response = client.post(f"/api/chat/{self.room_id}/read/")
+
+        self.assertEqual(response.status_code, 403)
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
+
     def test_marks_only_my_unread_notifications_as_read(self):
         Notification.objects.create(
             recipient=self.recipient_user,
@@ -444,7 +550,20 @@ class FeedbackChatTests(TestCase):
 
         self.assertEqual(send_response.status_code, 201)
         self.assertTrue(FeedbackThread.objects.filter(pk=thread_id, user=self.user, developer=self.developer).exists())
-        self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id, content="알림 화면 의견입니다.").exists())
+        feedback_message = FeedbackMessage.objects.get(thread_id=thread_id, content="알림 화면 의견입니다.")
+        notification = Notification.objects.get(feedback_message=feedback_message)
+        self.assertEqual(notification.recipient, self.developer)
+        self.assertEqual(notification.kind, Notification.Kind.FEEDBACK_MESSAGE)
+        self.assertIsNone(notification.team_id)
+        self.assertEqual(notification.data, {"feedback_thread_id": thread_id})
+
+        notification_response = self.developer_client.get("/api/notifications/")
+        self.assertEqual(notification_response.status_code, 200)
+        self.assertIsNone(notification_response.data["notifications"][0]["team_code"])
+        self.assertEqual(
+            notification_response.data["notifications"][0]["feedback_message_id"],
+            feedback_message.id,
+        )
 
         room_response = self.developer_client.get("/api/chat/rooms/")
         user_room_response = self.user_client.get("/api/chat/rooms/")
@@ -456,9 +575,63 @@ class FeedbackChatTests(TestCase):
         self.assertEqual(messages_response.status_code, 200)
         self.assertEqual(messages_response.data["messages"][0]["sender_nickname"], "피드백 사용자")
         self.assertIsNotNone(FeedbackMessage.objects.get(thread_id=thread_id).read_at)
+        notification.refresh_from_db()
+        self.assertTrue(notification.is_read)
+        self.assertIsNotNone(notification.read_at)
 
         cleanup_expired_ended_teams()
         self.assertTrue(FeedbackMessage.objects.filter(thread_id=thread_id).exists())
+
+    def test_feedback_read_endpoint_is_idempotent(self):
+        thread_id = self.user_client.post("/api/chat/feedback/").data["thread_id"]
+        thread = FeedbackThread.objects.get(pk=thread_id)
+        feedback_message = FeedbackMessage.objects.create(
+            thread=thread,
+            sender=self.user,
+            content="실시간 피드백",
+        )
+        Notification.objects.create(
+            recipient=self.developer,
+            feedback_message=feedback_message,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="새 개발자 피드백",
+            data={"feedback_thread_id": thread_id},
+        )
+
+        first_response = self.developer_client.post(f"/api/chat/feedback/{thread_id}/read/")
+        second_response = self.developer_client.post(f"/api/chat/feedback/{thread_id}/read/")
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_response.data["marked_message_count"], 1)
+        self.assertEqual(first_response.data["marked_notification_count"], 1)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.data["marked_message_count"], 0)
+        self.assertEqual(second_response.data["marked_notification_count"], 0)
+
+    def test_feedback_read_endpoint_rejects_an_outsider_without_marking_notifications(self):
+        thread_id = self.user_client.post("/api/chat/feedback/").data["thread_id"]
+        thread = FeedbackThread.objects.get(pk=thread_id)
+        feedback_message = FeedbackMessage.objects.create(
+            thread=thread,
+            sender=self.user,
+            content="외부인이 읽으면 안 되는 피드백",
+        )
+        notification = Notification.objects.create(
+            recipient=self.developer,
+            feedback_message=feedback_message,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="새 개발자 피드백",
+            data={"feedback_thread_id": thread_id},
+        )
+        outsider = User.objects.create(username="feedback-outsider", kakao_id=9002)
+        outsider_client = APIClient()
+        outsider_client.force_authenticate(outsider)
+
+        response = outsider_client.post(f"/api/chat/feedback/{thread_id}/read/")
+
+        self.assertEqual(response.status_code, 403)
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
 
     @patch("apps.chat.services.send_web_push_async")
     def test_feedback_messages_support_images_and_emoticons(self, _push_mock):
@@ -656,3 +829,59 @@ class ChatCleanupSchedulerTests(TestCase):
 
         self.assertEqual(deleted_count, 0)
         self.assertTrue(Team.objects.filter(pk=recent_team.pk).exists())
+
+
+class NotificationCleanupTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create(username="notification-cleanup-user", kakao_id=10001)
+
+    @patch("apps.chat.scheduler.publish_user_events_on_commit")
+    def test_deletes_read_and_unread_notifications_older_than_seven_days(self, publish_mock):
+        old_unread = Notification.objects.create(
+            recipient=self.user,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="오래된 미읽음 알림",
+        )
+        old_read = Notification.objects.create(
+            recipient=self.user,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="오래된 읽은 알림",
+            is_read=True,
+            read_at=timezone.now() - timedelta(days=8),
+        )
+        fresh = Notification.objects.create(
+            recipient=self.user,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="보관할 알림",
+        )
+        Notification.objects.filter(pk__in=[old_unread.pk, old_read.pk]).update(
+            created_at=timezone.now() - timedelta(days=8)
+        )
+        Notification.objects.filter(pk=fresh.pk).update(created_at=timezone.now() - timedelta(days=6))
+
+        deleted_count = cleanup_expired_notifications()
+
+        self.assertEqual(deleted_count, 2)
+        self.assertFalse(Notification.objects.filter(pk__in=[old_unread.pk, old_read.pk]).exists())
+        self.assertTrue(Notification.objects.filter(pk=fresh.pk).exists())
+        publish_mock.assert_called_once_with([self.user.id], "notifications.changed")
+
+    def test_data_migration_deletes_existing_expired_notifications(self):
+        expired = Notification.objects.create(
+            recipient=self.user,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="배포 전에 쌓인 알림",
+        )
+        retained = Notification.objects.create(
+            recipient=self.user,
+            kind=Notification.Kind.FEEDBACK_MESSAGE,
+            title="최근 알림",
+        )
+        Notification.objects.filter(pk=expired.pk).update(created_at=timezone.now() - timedelta(days=8))
+        Notification.objects.filter(pk=retained.pk).update(created_at=timezone.now() - timedelta(days=6))
+        migration = import_module("apps.chat.migrations.0007_generalize_notification")
+
+        migration.delete_expired_notifications(django_apps, None)
+
+        self.assertFalse(Notification.objects.filter(pk=expired.pk).exists())
+        self.assertTrue(Notification.objects.filter(pk=retained.pk).exists())

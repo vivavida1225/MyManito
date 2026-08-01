@@ -22,7 +22,11 @@ class ChatConfig(AppConfig):
         if scheduler.running:
             return
 
-        from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams
+        from .scheduler import (
+            cleanup_expired_attachments,
+            cleanup_expired_ended_teams,
+            cleanup_expired_notifications,
+        )
         from apps.teams.leaderboard_services import generate_active_leaderboard_snapshots
 
         scheduler.add_job(
@@ -38,6 +42,14 @@ class ChatConfig(AppConfig):
             trigger="cron",
             minute=0,
             id="cleanup-expired-ended-teams",
+            replace_existing=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            cleanup_expired_notifications,
+            trigger="cron",
+            minute=0,
+            id="cleanup-expired-notifications",
             replace_existing=True,
             max_instances=1,
         )

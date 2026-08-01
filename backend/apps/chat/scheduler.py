@@ -4,7 +4,9 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Message, MessageAttachment
+from apps.realtime.events import publish_user_events_on_commit
+
+from .models import Message, MessageAttachment, Notification
 
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,22 @@ def cleanup_expired_ended_teams():
             team.delete()
             deleted_count += 1
 
+    return deleted_count
+
+
+def cleanup_expired_notifications():
+    """생성 후 7일이 지난 앱 알림을 읽음 여부와 관계없이 영구 삭제한다."""
+    cutoff = timezone.now() - timedelta(days=7)
+    expired_notifications = Notification.objects.filter(created_at__lte=cutoff)
+    recipient_ids = list(
+        expired_notifications.order_by().values_list("recipient_id", flat=True).distinct()
+    )
+    deleted_count = expired_notifications.count()
+    if not deleted_count:
+        return 0
+
+    expired_notifications.delete()
+    publish_user_events_on_commit(recipient_ids, "notifications.changed")
     return deleted_count
 
 

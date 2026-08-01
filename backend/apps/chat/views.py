@@ -26,6 +26,8 @@ from .services import (
     get_or_create_chat_profile,
     list_chat_rooms,
     list_feedback_threads,
+    mark_chat_room_as_read,
+    mark_feedback_thread_as_read,
     get_or_create_feedback_thread,
 )
 from apps.teams.leaderboard_services import award_like_score
@@ -71,7 +73,7 @@ class FeedbackMessageView(APIView):
         if since:
             messages = messages.filter(created_at__gt=since)
         messages = list(messages)
-        FeedbackMessage.objects.filter(thread=thread, read_at__isnull=True).exclude(sender=request.user).update(read_at=timezone.now())
+        mark_feedback_thread_as_read(thread=thread, user=request.user)
         is_developer = request.user.id == thread.developer_id
         return Response(
             {
@@ -126,12 +128,7 @@ class ChatMessageView(APIView):
             messages = messages.filter(created_at__gt=since)
         messages = list(messages)
 
-        Message.objects.filter(
-            team=room.team,
-            sender=room.counterpart,
-            recipient=room.me,
-            read_at__isnull=True,
-        ).update(read_at=timezone.now())
+        mark_chat_room_as_read(room=room, user=request.user)
 
         return Response(
             {
@@ -172,6 +169,28 @@ class ChatMessageView(APIView):
             MessageSerializer(message, context={"participant": room.me}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class ChatRoomReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, room_id):
+        try:
+            room = get_chat_room_for_user(room_id=room_id, user=request.user)
+        except ChatRoomError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(mark_chat_room_as_read(room=room, user=request.user))
+
+
+class FeedbackThreadReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, thread_id):
+        try:
+            thread = get_feedback_thread_for_user(thread_id=thread_id, user=request.user)
+        except FeedbackError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_403_FORBIDDEN)
+        return Response(mark_feedback_thread_as_read(thread=thread, user=request.user))
 
 
 class ChatProfileView(APIView):
@@ -235,7 +254,11 @@ class NotificationListView(APIView):
 
     def get(self, request):
         _ensure_d_day_notifications(request.user)
-        notification_queryset = Notification.objects.filter(recipient=request.user).select_related("team", "message")
+        notification_queryset = Notification.objects.filter(recipient=request.user).select_related(
+            "team",
+            "message",
+            "feedback_message",
+        )
         unread_count = notification_queryset.filter(is_read=False).count()
         notifications = notification_queryset[:50]
         return Response(
@@ -245,8 +268,9 @@ class NotificationListView(APIView):
                     {
                         "id": notification.id,
                         "kind": notification.kind,
-                        "team_code": notification.team.code,
+                        "team_code": notification.team.code if notification.team_id else None,
                         "message_id": notification.message_id,
+                        "feedback_message_id": notification.feedback_message_id,
                         "title": notification.title,
                         "body": notification.body,
                         "data": notification.data,

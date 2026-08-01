@@ -91,6 +91,7 @@ class Notification(models.Model):
 
     class Kind(models.TextChoices):
         MESSAGE = "MESSAGE", "새 메시지"
+        FEEDBACK_MESSAGE = "FEEDBACK_MESSAGE", "새 개발자 피드백"
         COUNTERPART_CLAIMED = "COUNTERPART_CLAIMED", "상대방 확인 완료"
         PARTICIPANT_CLAIMED = "PARTICIPANT_CLAIMED", "참여자 확인 완료"
         DDAY = "DDAY", "D-Day"
@@ -98,8 +99,21 @@ class Notification(models.Model):
         TEAM_ANNOUNCEMENT = "TEAM_ANNOUNCEMENT", "팀 공지"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="notifications")
+    team = models.ForeignKey(
+        Team,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
     message = models.ForeignKey(Message, null=True, blank=True, on_delete=models.SET_NULL, related_name="notifications")
+    feedback_message = models.ForeignKey(
+        FeedbackMessage,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
     kind = models.CharField(max_length=30, choices=Kind.choices)
     title = models.CharField(max_length=100)
     body = models.CharField(max_length=255, blank=True)
