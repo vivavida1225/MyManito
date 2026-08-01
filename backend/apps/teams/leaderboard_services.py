@@ -57,8 +57,12 @@ def assign_leaderboard_profiles(participants, *, randomize=True):
     for index, participant in enumerate(participants):
         nickname, avatar_key = pairs[index % len(pairs)]
         participant.leaderboard_nickname = nickname
+        participant.anonymous_nickname = nickname
         participant.leaderboard_avatar_key = avatar_key
-    Participant.objects.bulk_update(participants, ["leaderboard_nickname", "leaderboard_avatar_key"])
+    Participant.objects.bulk_update(
+        participants,
+        ["leaderboard_nickname", "anonymous_nickname", "leaderboard_avatar_key"],
+    )
 
 
 def _is_active(team):

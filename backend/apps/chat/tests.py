@@ -19,7 +19,7 @@ from apps.teams.services import create_team_with_matching
 
 from .models import ChatProfile, FeedbackMessage, FeedbackMessageAttachment, FeedbackThread, Message, MessageAttachment, Notification
 from .scheduler import cleanup_expired_attachments, cleanup_expired_ended_teams, cleanup_expired_notifications
-from .services import DEFAULT_ANONYMOUS_NICKNAMES, make_room_id, notify_message_recipient
+from .services import make_room_id, notify_message_recipient
 
 
 class ChatApiTests(TestCase):
@@ -72,6 +72,21 @@ class ChatApiTests(TestCase):
         self.assertEqual(cared_for_room["latest_message_preview"], "가장 최근 메시지")
         self.assertTrue(any(not room["counterpart_claimed"] for room in response.data["rooms"]))
 
+    def test_room_list_uses_leaderboard_nickname_when_anonymous_nickname_is_blank(self):
+        self.counterpart.anonymous_nickname = ""
+        self.counterpart.save(update_fields=["anonymous_nickname"])
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        response = client.get("/api/chat/rooms/")
+        room = next(
+            item for item in response.data["rooms"]
+            if item["room_id"] == self.room_id
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(room["counterpart_nickname"], self.counterpart.leaderboard_nickname)
+
     def test_room_list_reveals_counterpart_name_after_results_are_released(self):
         cared_for_me = self.owner_participant.assigned_from.get()
         self.team.status = Team.Status.ENDED
@@ -98,6 +113,11 @@ class ChatApiTests(TestCase):
         cared_for_me.claimed_by = caring_user
         cared_for_me.anonymous_nickname = "밤하늘"
         cared_for_me.save(update_fields=["claimed_by", "anonymous_nickname"])
+        ChatProfile.objects.create(
+            owner=cared_for_me,
+            counterpart=self.owner_participant,
+            nickname="방별 밤하늘",
+        )
         client = APIClient()
         client.force_authenticate(self.owner)
 
@@ -108,7 +128,11 @@ class ChatApiTests(TestCase):
         caring_for_me_room = next(room for room in response.data["rooms"] if room["room_id"] == room_id)
         self.assertTrue(caring_for_me_room["counterpart_claimed"])
         self.assertIsNone(caring_for_me_room["counterpart_name"])
-        self.assertEqual(caring_for_me_room["counterpart_nickname"], "밤하늘")
+        self.assertEqual(caring_for_me_room["counterpart_nickname"], "방별 밤하늘")
+        self.assertNotIn(
+            cared_for_me.display_name,
+            json.dumps(caring_for_me_room, ensure_ascii=False, default=str),
+        )
 
     @patch("apps.chat.services.notify_message_recipient")
     def test_send_and_poll_messages_in_an_authorized_room(self, _notify_mock):
@@ -131,7 +155,10 @@ class ChatApiTests(TestCase):
         self.assertEqual(poll_response.status_code, 200)
         self.assertEqual(poll_response.data["messages"], [])
         self.assertEqual(poll_response.data["room"]["team_code"], self.team.code)
-        self.assertEqual(poll_response.data["room"]["my_anonymous_nickname"], "")
+        self.assertEqual(
+            poll_response.data["room"]["my_anonymous_nickname"],
+            self.owner_participant.leaderboard_nickname,
+        )
 
     @patch("apps.chat.services.notify_message_recipient_async")
     def test_message_response_dispatches_notifications_after_commit(self, notification_dispatch_mock):
@@ -264,20 +291,67 @@ class ChatApiTests(TestCase):
 
         self.assertEqual(update_response.status_code, 200)
         self.assertEqual(update_response.data["my_profile"]["nickname"], "달빛")
+        self.assertEqual(
+            update_response.data["my_profile"]["default_nickname"],
+            self.owner_participant.leaderboard_nickname,
+        )
         self.assertEqual(profile_response.status_code, 200)
         self.assertEqual(profile_response.data["my_profile"]["avatar_key"], "moon")
         self.assertTrue(
             ChatProfile.objects.filter(owner=self.owner_participant, counterpart=self.counterpart).exists()
         )
 
-    def test_chat_profile_uses_character_name_when_no_nickname_is_set(self):
+    def test_chat_profile_returns_blank_when_no_nickname_is_set(self):
         client = APIClient()
         client.force_authenticate(self.owner)
 
         response = client.get(f"/api/chat/{self.room_id}/profile/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(response.data["my_profile"]["nickname"], DEFAULT_ANONYMOUS_NICKNAMES)
+        self.assertEqual(response.data["my_profile"]["nickname"], "")
+        self.assertEqual(
+            response.data["my_profile"]["default_nickname"],
+            self.owner_participant.leaderboard_nickname,
+        )
+        self.assertNotIn("default_nickname", response.data["counterpart_profile"])
+        profile_payload = json.dumps(response.data, ensure_ascii=False, default=str)
+        self.assertNotIn(self.owner_participant.display_name, profile_payload)
+        self.assertNotIn(self.counterpart.display_name, profile_payload)
+
+    @patch("apps.chat.services.notify_message_recipient_async")
+    def test_room_profile_nickname_is_used_in_list_and_messages(self, _notify_mock):
+        ChatProfile.objects.create(
+            owner=self.counterpart,
+            counterpart=self.owner_participant,
+            nickname="달빛",
+        )
+        client = APIClient()
+        client.force_authenticate(self.owner)
+
+        rooms_response = client.get("/api/chat/rooms/")
+        room = next(
+            item for item in rooms_response.data["rooms"]
+            if item["room_id"] == self.room_id
+        )
+
+        client.force_authenticate(self.recipient_user)
+        send_response = client.post(
+            f"/api/chat/{self.room_id}/messages/",
+            {"content": "방별 닉네임으로 보이는 메시지"},
+            format="json",
+        )
+        client.force_authenticate(self.owner)
+        messages_response = client.get(f"/api/chat/{self.room_id}/messages/")
+
+        self.assertEqual(rooms_response.status_code, 200)
+        self.assertEqual(room["counterpart_nickname"], "달빛")
+        self.assertEqual(send_response.status_code, 201)
+        self.assertEqual(messages_response.status_code, 200)
+        self.assertEqual(messages_response.data["messages"][0]["sender_nickname"], "달빛")
+        self.assertNotIn(
+            self.counterpart.display_name,
+            json.dumps(messages_response.data, ensure_ascii=False, default=str),
+        )
 
     @patch("apps.chat.services.notify_message_recipient")
     def test_message_creates_notification_that_can_be_marked_read(self, _notify_mock):

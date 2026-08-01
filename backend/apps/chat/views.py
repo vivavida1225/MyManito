@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.push import send_web_push_async
 from apps.realtime.events import publish_user_events_on_commit
-from .models import FeedbackMessage, Notification, Message
+from .models import ChatProfile, FeedbackMessage, Notification, Message
 from .serializers import (
     ChatProfileUpdateSerializer,
     MessageCreateSerializer,
@@ -140,7 +140,7 @@ class ChatMessageView(APIView):
                 "messages": MessageSerializer(
                     messages,
                     many=True,
-                    context={"participant": room.me},
+                    context=_message_serializer_context(room),
                 ).data,
                 "next_since": messages[-1].created_at.isoformat() if messages else since,
             }
@@ -166,7 +166,7 @@ class ChatMessageView(APIView):
 
         message = Message.objects.select_related("sender").prefetch_related("attachments").get(pk=message.pk)
         return Response(
-            MessageSerializer(message, context={"participant": room.me}).data,
+            MessageSerializer(message, context=_message_serializer_context(room)).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -206,10 +206,15 @@ class ChatProfileView(APIView):
         return Response(
             {
                 "team_code": room.team.code,
-                "my_profile": _profile_payload(get_or_create_chat_profile(owner=room.me, counterpart=room.counterpart), room.me),
+                "my_profile": _profile_payload(
+                    get_or_create_chat_profile(
+                        owner=room.me,
+                        counterpart=room.counterpart,
+                    ),
+                    default_nickname=room.me.leaderboard_nickname,
+                ),
                 "counterpart_profile": _profile_payload(
                     get_or_create_chat_profile(owner=room.counterpart, counterpart=room.me),
-                    room.counterpart,
                 ),
             }
         )
@@ -230,7 +235,19 @@ class ChatProfileView(APIView):
             if field in serializer.validated_data:
                 setattr(profile, field, serializer.validated_data[field])
         profile.save()
-        return Response({"my_profile": _profile_payload(profile, room.me)})
+        if room.counterpart.claimed_by_id:
+            publish_user_events_on_commit(
+                [room.counterpart.claimed_by_id],
+                "chat.rooms.changed",
+            )
+        return Response(
+            {
+                "my_profile": _profile_payload(
+                    profile,
+                    default_nickname=room.me.leaderboard_nickname,
+                )
+            }
+        )
 
 
 class ChatLikeView(APIView):
@@ -322,11 +339,27 @@ class NotificationClearView(APIView):
         return Response({"deleted_count": deleted_count})
 
 
-def _profile_payload(profile, participant):
-    return {
-        "nickname": profile.nickname or get_anonymous_nickname(participant),
+def _profile_payload(profile, *, default_nickname=None):
+    payload = {
+        "nickname": profile.nickname,
         "image_url": profile.image.url if profile.image else None,
         "avatar_key": profile.avatar_key,
+    }
+    if default_nickname is not None:
+        payload["default_nickname"] = default_nickname
+    return payload
+
+
+def _message_serializer_context(room):
+    profile = ChatProfile.objects.filter(
+        owner=room.counterpart,
+        counterpart=room.me,
+    ).first()
+    return {
+        "participant": room.me,
+        "counterpart_nickname": (
+            profile.nickname if profile and profile.nickname else get_anonymous_nickname(room.counterpart)
+        ),
     }
 
 

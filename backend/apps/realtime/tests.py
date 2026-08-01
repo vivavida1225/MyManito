@@ -4,12 +4,13 @@ from channels.testing import WebsocketCommunicator
 from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 from datetime import timedelta
+import json
 from rest_framework_simplejwt.backends import TokenBackend
 from rest_framework_simplejwt.tokens import AccessToken
 from unittest.mock import patch
 
 from apps.accounts.models import User
-from apps.chat.models import FeedbackMessage, FeedbackThread, Message
+from apps.chat.models import ChatProfile, FeedbackMessage, FeedbackThread, Message
 from apps.chat.services import make_room_id
 from apps.teams.models import Participant
 from apps.teams.services import create_team_with_matching
@@ -160,17 +161,22 @@ class RealtimeChatMessageTests(TransactionTestCase):
                 "parsed_participant_names": ["보낸이", "받는이", "참여자"],
             },
         )
-        sender_participant = Participant.objects.get(
+        self.sender_participant = Participant.objects.get(
             team=self.team,
             claimed_by=self.sender,
         )
-        sender_participant.anonymous_nickname = "햇빛"
-        sender_participant.save(update_fields=["anonymous_nickname"])
-        self.counterpart = sender_participant.assigned_to
+        self.sender_participant.anonymous_nickname = "햇빛"
+        self.sender_participant.save(update_fields=["anonymous_nickname"])
+        self.counterpart = self.sender_participant.assigned_to
         self.counterpart.claimed_by = self.recipient
         self.counterpart.anonymous_nickname = "별빛"
         self.counterpart.save(update_fields=["claimed_by", "anonymous_nickname"])
-        self.room_id = make_room_id(sender_participant.id, self.counterpart.id)
+        ChatProfile.objects.create(
+            owner=self.sender_participant,
+            counterpart=self.counterpart,
+            nickname="방별 햇빛",
+        )
+        self.room_id = make_room_id(self.sender_participant.id, self.counterpart.id)
         self.feedback_thread = FeedbackThread.objects.create(
             user=self.sender,
             developer=self.developer,
@@ -219,7 +225,11 @@ class RealtimeChatMessageTests(TransactionTestCase):
         self.assertEqual(sender_event["message"]["content"], "모바일에서도 바로 보여요")
         self.assertEqual(recipient_event["tempId"], "temp-1001")
         self.assertFalse(recipient_event["message"]["is_mine"])
-        self.assertEqual(recipient_event["message"]["sender_nickname"], "햇빛")
+        self.assertEqual(recipient_event["message"]["sender_nickname"], "방별 햇빛")
+        self.assertNotIn(
+            self.sender_participant.display_name,
+            json.dumps(recipient_event, ensure_ascii=False),
+        )
         self.assertEqual(sender_event["message"]["id"], recipient_event["message"]["id"])
 
         await sender_socket.disconnect()

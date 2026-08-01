@@ -136,19 +136,6 @@ def claim_participant(*, team, user, participant_id):
     return participant
 
 
-@transaction.atomic
-def set_anonymous_nickname(*, team, user, anonymous_nickname):
-    """현재 사용자가 Claim한 참여자의 채팅용 익명 닉네임을 저장한다."""
-    try:
-        participant = Participant.objects.select_for_update().get(team=team, claimed_by=user)
-    except Participant.DoesNotExist as error:
-        raise ClaimError("먼저 본인 이름을 확인해 주세요.") from error
-
-    participant.anonymous_nickname = anonymous_nickname
-    participant.save(update_fields=["anonymous_nickname"])
-    return participant
-
-
 def get_team_dashboard(team):
     """관리자만 볼 수 있는 참여 진행 현황을 계산한다."""
     participants = Participant.objects.filter(team=team)
@@ -452,7 +439,7 @@ def create_claim_notifications(*, team, participant, claiming_user):
 
 @transaction.atomic
 def reset_participant_claim(*, team, participant_id):
-    """오선택된 참여자의 Claim과 채팅 익명 닉네임을 초기화한다."""
+    """오선택된 참여자의 Claim을 초기화한다."""
     Team.objects.select_for_update().get(pk=team.pk)
     try:
         participant = Participant.objects.select_for_update().get(pk=participant_id, team=team)
@@ -463,8 +450,7 @@ def reset_participant_claim(*, team, participant_id):
         raise ClaimError("아직 확인되지 않은 참여자입니다.")
 
     participant.claimed_by = None
-    participant.anonymous_nickname = ""
-    participant.save(update_fields=["claimed_by", "anonymous_nickname"])
+    participant.save(update_fields=["claimed_by"])
 
 
 @transaction.atomic

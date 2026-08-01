@@ -49,6 +49,18 @@ class TeamMatchingTests(TestCase):
             self.owner,
         )
         self.assertTrue(all(participant.leaderboard_nickname for participant in participants))
+        self.assertTrue(
+            all(
+                participant.anonymous_nickname == participant.leaderboard_nickname
+                for participant in participants
+            )
+        )
+        self.assertTrue(
+            all(
+                participant.anonymous_nickname != participant.display_name
+                for participant in participants
+            )
+        )
         self.assertTrue(all(participant.leaderboard_avatar_key for participant in participants))
         self.assertEqual(len({participant.leaderboard_nickname for participant in participants}), len(participants))
         self.assertTrue(
@@ -252,25 +264,19 @@ class TeamParticipationTests(TestCase):
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(second_response.status_code, 400)
 
-    def test_claimed_participant_can_save_anonymous_nickname(self):
+    def test_claimed_participant_keeps_generated_anonymous_nickname(self):
         client = APIClient()
         client.force_authenticate(self.member)
         minji = Participant.objects.get(team=self.team, display_name="민지")
-        client.post(
+        response = client.post(
             f"/api/teams/{self.team.code}/claim/",
             {"participant_id": minji.id},
             format="json",
         )
 
-        response = client.post(
-            f"/api/teams/{self.team.code}/anonymous-nickname/",
-            {"anonymous_nickname": "별빛"},
-            format="json",
-        )
-
         self.assertEqual(response.status_code, 200)
         minji.refresh_from_db()
-        self.assertEqual(minji.anonymous_nickname, "별빛")
+        self.assertEqual(minji.anonymous_nickname, minji.leaderboard_nickname)
 
 
 class TeamAdminLifecycleTests(TestCase):

@@ -160,7 +160,6 @@ onUnmounted(() => window.clearInterval(countdownTimer));
             <p class="mt-1 text-2xl font-extrabold">{{ remainingTime }}</p>
             <p class="mt-2 text-xs font-medium text-amber-950/70">{{ endDateLabel }}</p>
           </div>
-          <span class="rounded-2xl bg-white/30 px-3 py-2 text-sm font-extrabold">{{ countdown?.remaining || "D-Day" }}</span>
         </div>
       </div>
 

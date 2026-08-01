@@ -1,7 +1,6 @@
 from django.urls import path
 
 from .views import (
-    AnonymousNicknameView,
     TeamAnnouncementView,
     ClaimResetView,
     MyAssignmentView,
@@ -42,9 +41,4 @@ urlpatterns = [
     path("<str:code>/admin/reset-claim/", ClaimResetView.as_view(), name="claim-reset"),
     path("<str:code>/admin/end/", TeamEndView.as_view(), name="team-end"),
     path("<str:code>/admin/release-results/", TeamResultReleaseView.as_view(), name="team-result-release"),
-    path(
-        "<str:code>/anonymous-nickname/",
-        AnonymousNicknameView.as_view(),
-        name="anonymous-nickname",
-    ),
 ]

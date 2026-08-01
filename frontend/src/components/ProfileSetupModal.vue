@@ -16,6 +16,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  isRequired: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(["cancel", "save"]);
@@ -37,6 +41,10 @@ function submit() {
   });
 }
 
+function useDefaultNickname() {
+  nickname.value = props.initialProfile?.default_nickname || "";
+}
+
 watch(() => props.initialProfile, syncProfile, { immediate: true, deep: true });
 </script>
 
@@ -48,7 +56,6 @@ watch(() => props.initialProfile, syncProfile, { immediate: true, deep: true });
     aria-labelledby="profile-setup-title"
   >
     <form class="mx-auto w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl" @submit.prevent="submit">
-      <p class="text-sm font-bold text-amber-500">이 방에서만 사용하는 프로필</p>
       <h2 id="profile-setup-title" class="mt-1 text-xl font-extrabold text-slate-800">익명 프로필 설정</h2>
       <p class="mt-2 text-sm leading-6 text-slate-500">상대방에게만 보이는 닉네임과 사진이에요.</p>
 
@@ -59,9 +66,18 @@ watch(() => props.initialProfile, syncProfile, { immediate: true, deep: true });
           required
           maxlength="50"
           class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
-          placeholder="상대에게 보일 이름"
+          placeholder="자신을 드러낼 만한 내용은 적지 말아 주세요"
         />
       </label>
+      <button
+        v-if="initialProfile?.default_nickname"
+        type="button"
+        class="mt-2 text-sm font-bold text-amber-600 underline decoration-amber-300 underline-offset-4 disabled:opacity-50"
+        :disabled="isSaving"
+        @click="useDefaultNickname"
+      >
+        기본 닉네임 사용
+      </button>
 
       <fieldset class="mt-5">
         <legend class="text-sm font-bold text-slate-700">프로필 사진</legend>
@@ -82,8 +98,9 @@ watch(() => props.initialProfile, syncProfile, { immediate: true, deep: true });
       </fieldset>
 
       <p v-if="errorMessage" class="mt-3 text-sm text-red-600" role="alert">{{ errorMessage }}</p>
-      <div class="mt-6 grid grid-cols-2 gap-3">
+      <div class="mt-6 grid gap-3" :class="isRequired ? 'grid-cols-1' : 'grid-cols-2'">
         <button
+          v-if="!isRequired"
           type="button"
           class="min-h-12 rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600 disabled:opacity-50"
           :disabled="isSaving"

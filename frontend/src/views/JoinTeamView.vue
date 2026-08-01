@@ -2,10 +2,9 @@
 import { computed, ref } from "vue";
 
 import api from "../api";
-import celebratingImage from "../assets/mani_celebrating.webp";
-import messagingImage from "../assets/mani_messaging.webp";
 import waitingImage from "../assets/mani_waiting.webp";
 import ClaimModal from "../components/ClaimModal.vue";
+import TeamDashboardCard from "../components/TeamDashboardCard.vue";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
@@ -18,8 +17,7 @@ const step = ref("code");
 const isLoading = ref(false);
 const errorMessage = ref("");
 const showClaimConfirm = ref(false);
-const anonymousNickname = ref("");
-const anonymousNicknameSaved = ref(false);
+const dashboardTeam = ref(null);
 
 const myKakaoNickname = computed(() => auth.kakaoProfile?.nickname || "");
 const matchedParticipant = computed(
@@ -28,9 +26,28 @@ const matchedParticipant = computed(
 const otherParticipants = computed(() =>
   participants.value.filter((participant) => participant.id !== matchedParticipant.value?.id),
 );
+const teamDashboardCard = computed(() => dashboardTeam.value || {
+  code: team.value?.code || teamCode.value.trim(),
+  is_owner: false,
+  status: "ACTIVE",
+  claim_status: "CLAIMED",
+  countdown: null,
+  unread_count: 0,
+});
 
 function teamPath(suffix = "") {
   return `/teams/${encodeURIComponent(teamCode.value.trim())}${suffix}`;
+}
+
+async function loadDashboardTeam() {
+  try {
+    const response = await api.get("/teams/mine/");
+    dashboardTeam.value = (response.data.teams || []).find(
+      (item) => item.code === teamCode.value.trim(),
+    ) || null;
+  } catch {
+    dashboardTeam.value = null;
+  }
 }
 
 async function findTeam() {
@@ -64,8 +81,8 @@ async function agreeAndLoadParticipants() {
     const assignmentResponse = await api.get(teamPath("/my-assignment/"));
     if (assignmentResponse.data.is_claimed) {
       claimResult.value = assignmentResponse.data;
-      anonymousNickname.value = assignmentResponse.data.anonymous_nickname || "";
       step.value = "result";
+      await loadDashboardTeam();
       return;
     }
 
@@ -105,32 +122,11 @@ async function confirmClaim() {
     claimResult.value = response.data;
     showClaimConfirm.value = false;
     step.value = "result";
+    await loadDashboardTeam();
   } catch (error) {
     showClaimConfirm.value = false;
     errorMessage.value =
       error.response?.data?.detail || "이름 확인에 실패했습니다. 새로고침 후 다시 시도해 주세요.";
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-async function saveAnonymousNickname() {
-  errorMessage.value = "";
-  anonymousNicknameSaved.value = false;
-  if (!anonymousNickname.value.trim()) {
-    errorMessage.value = "익명 닉네임을 입력해 주세요.";
-    return;
-  }
-
-  isLoading.value = true;
-  try {
-    await api.post(teamPath("/anonymous-nickname/"), {
-      anonymous_nickname: anonymousNickname.value.trim(),
-    });
-    anonymousNicknameSaved.value = true;
-  } catch (error) {
-    errorMessage.value =
-      error.response?.data?.detail || "익명 닉네임을 저장하지 못했습니다.";
   } finally {
     isLoading.value = false;
   }
@@ -228,38 +224,9 @@ async function saveAnonymousNickname() {
         </p>
         <p class="mt-1 text-sm text-slate-600">님입니다!</p>
       </div>
-      <form class="space-y-3" @submit.prevent="saveAnonymousNickname">
-        <label class="block">
-          <span class="text-sm font-medium text-slate-700">채팅용 익명 닉네임</span>
-          <input
-            v-model="anonymousNickname"
-            maxlength="50"
-            class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5"
-            placeholder="상대에게 보일 이름"
-          />
-          <p class="mt-2 text-xs leading-5 text-amber-700">
-            실명, 이니셜, 소속 등 본인을 유추할 수 있는 닉네임은 사용하지 말아 주세요.
-          </p>
-        </label>
-        <button
-          type="submit"
-          class="w-full rounded-xl border border-slate-900 px-4 py-3 font-semibold text-slate-900 disabled:opacity-50"
-          :disabled="isLoading"
-        >
-          익명 닉네임 저장
-        </button>
-        <p v-if="anonymousNicknameSaved" class="text-center text-sm text-emerald-700">
-          익명 닉네임을 저장했습니다.
-        </p>
-      </form>
-      <div v-if="anonymousNicknameSaved" class="flex flex-col items-center pt-2">
-        <img :src="celebratingImage" alt="축하하는 마니" class="w-56 max-w-[78%] object-contain" />
-        <RouterLink
-          :to="{ name: 'team-home', params: { teamCode: teamCode.trim() } }"
-          class="mt-3 w-full rounded-xl bg-amber-400 px-4 py-3 text-center font-bold text-amber-950 shadow-sm"
-        >
-          팀 메인으로 가기
-        </RouterLink>
+      <div>
+        <p class="mb-3 text-sm font-bold text-slate-700">참여한 팀 대시보드</p>
+        <TeamDashboardCard :team="teamDashboardCard" />
       </div>
     </div>
 

@@ -189,7 +189,11 @@ def get_default_anonymous_nickname(participant):
 
 
 def get_anonymous_nickname(participant):
-    return participant.anonymous_nickname or get_default_anonymous_nickname(participant)
+    return (
+        participant.anonymous_nickname
+        or participant.leaderboard_nickname
+        or get_default_anonymous_nickname(participant)
+    )
 
 
 def is_chat_available(team):
@@ -421,7 +425,12 @@ def create_message(*, room, content, image, emoticon_key="", client_temp_id=None
             message=_realtime_message_payload(
                 message,
                 is_mine=False,
-                sender_nickname=get_anonymous_nickname(me),
+                sender_nickname=(
+                    ChatProfile.objects.filter(owner=me, counterpart=counterpart)
+                    .values_list("nickname", flat=True)
+                    .first()
+                    or get_anonymous_nickname(me)
+                ),
             ),
         )
     else:

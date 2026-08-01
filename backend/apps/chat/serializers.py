@@ -69,7 +69,7 @@ class MessageSerializer(serializers.ModelSerializer):
     def get_sender_nickname(self, obj):
         if self.get_is_mine(obj):
             return "나"
-        return get_anonymous_nickname(obj.sender)
+        return self.context.get("counterpart_nickname") or get_anonymous_nickname(obj.sender)
 
     def get_image_url(self, obj):
         attachment = next(iter(obj.attachments.all()), None)

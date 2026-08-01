@@ -143,6 +143,10 @@ router.beforeEach((to) => {
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return { name: "dashboard" };
   }
+
+  if (to.name === "chat-room" || to.name === "feedback-room") {
+    window.scrollTo(0, 0);
+  }
 });
 
 router.afterEach((_to, _from, failure) => {

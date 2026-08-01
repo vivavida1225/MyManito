@@ -108,15 +108,6 @@ class ParticipantClaimSerializer(serializers.Serializer):
     participant_id = serializers.IntegerField(min_value=1)
 
 
-class AnonymousNicknameSerializer(serializers.Serializer):
-    anonymous_nickname = serializers.CharField(max_length=50, trim_whitespace=True)
-
-    def validate_anonymous_nickname(self, value):
-        if not value:
-            raise serializers.ValidationError("익명 닉네임을 입력해 주세요.")
-        return value
-
-
 class ClaimResetSerializer(serializers.Serializer):
     participant_id = serializers.IntegerField(min_value=1)
 

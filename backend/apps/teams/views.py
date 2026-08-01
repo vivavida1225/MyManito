@@ -6,7 +6,6 @@ from rest_framework.views import APIView
 
 from .models import Participant, Team
 from .serializers import (
-    AnonymousNicknameSerializer,
     ClaimResetSerializer,
     ParticipantClaimSerializer,
     TeamCreateSerializer,
@@ -32,7 +31,6 @@ from .services import (
     get_my_teams,
     reset_participant_claim,
     release_manual_results,
-    set_anonymous_nickname,
     update_team_planned_end,
     update_team_reveal_mode,
     update_team_rules,
@@ -229,28 +227,6 @@ class MyAssignmentView(APIView):
                 "anonymous_nickname": participant.anonymous_nickname,
             }
         )
-
-
-class AnonymousNicknameView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, code):
-        team = _get_active_team(code)
-        if isinstance(team, Response):
-            return team
-
-        serializer = AnonymousNicknameSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            participant = set_anonymous_nickname(
-                team=team,
-                user=request.user,
-                anonymous_nickname=serializer.validated_data["anonymous_nickname"],
-            )
-        except ClaimError as error:
-            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({"anonymous_nickname": participant.anonymous_nickname})
 
 
 class TeamAdminDashboardView(APIView):

@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import imageCompression from "browser-image-compression";
 
@@ -45,6 +45,9 @@ const isSavingProfile = ref(false);
 const isEmoticonPickerOpen = ref(false);
 const isLiking = ref(false);
 const likeNextAvailableAt = ref(null);
+const isProfileRequired = computed(
+  () => !props.isFeedback && Boolean(chatProfile.value) && !chatProfile.value.my_profile?.nickname,
+);
 let previousBodyOverflow = "";
 const emoticons = [
   ...DEFAULT_PROFILE_OPTIONS,
@@ -466,10 +469,11 @@ function handleConnectionClosed() {
 onMounted(async () => {
   previousBodyOverflow = document.body.style.overflow;
   document.body.style.overflow = "hidden";
-  await loadMessages();
+  const initialLoads = [loadMessages()];
   if (!props.isFeedback) {
-    await loadProfile();
+    initialLoads.push(loadProfile());
   }
+  await Promise.all(initialLoads);
   window.addEventListener("realtime-chat-message", handleRealtimeMessage);
   window.addEventListener("realtime-chat-message-failed", handleRealtimeFailure);
   window.addEventListener("realtime-connection-closed", handleConnectionClosed);
@@ -655,6 +659,7 @@ onUnmounted(() => {
       :initial-profile="chatProfile?.my_profile"
       :is-saving="isSavingProfile"
       :error-message="profileError"
+      :is-required="isProfileRequired"
       @cancel="showProfileSetup = false"
       @save="saveProfile"
     />
