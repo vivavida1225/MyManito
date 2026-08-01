@@ -41,8 +41,11 @@ function submit() {
   });
 }
 
-function useDefaultNickname() {
-  nickname.value = props.initialProfile?.default_nickname || "";
+function generateRandomNickname() {
+  const nicknameOptions = props.initialProfile?.nickname_options || [];
+  const differentOptions = nicknameOptions.filter((option) => option !== nickname.value);
+  const candidates = differentOptions.length ? differentOptions : nicknameOptions;
+  nickname.value = candidates[Math.floor(Math.random() * candidates.length)] || "";
 }
 
 watch(() => props.initialProfile, syncProfile, { immediate: true, deep: true });
@@ -70,13 +73,13 @@ watch(() => props.initialProfile, syncProfile, { immediate: true, deep: true });
         />
       </label>
       <button
-        v-if="initialProfile?.default_nickname"
+        v-if="initialProfile?.nickname_options?.length"
         type="button"
-        class="mt-2 text-sm font-bold text-amber-600 underline decoration-amber-300 underline-offset-4 disabled:opacity-50"
+        class="mt-3 min-h-14 w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-base font-extrabold text-slate-800 transition hover:bg-amber-50 focus:outline-none focus:ring-4 focus:ring-amber-100 disabled:opacity-50"
         :disabled="isSaving"
-        @click="useDefaultNickname"
+        @click="generateRandomNickname"
       >
-        기본 닉네임 사용
+        랜덤 닉네임 생성
       </button>
 
       <fieldset class="mt-5">

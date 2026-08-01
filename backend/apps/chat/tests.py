@@ -12,8 +12,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
+from apps.teams.leaderboard_config import CHAT_MESSAGE_POINTS, LEADERBOARD_NICKNAMES
 from apps.teams.models import Participant, ScoreEvent, Team
-from apps.teams.leaderboard_config import CHAT_MESSAGE_POINTS
 from apps.teams.leaderboard_services import award_message_score
 from apps.teams.services import create_team_with_matching
 
@@ -291,9 +291,9 @@ class ChatApiTests(TestCase):
 
         self.assertEqual(update_response.status_code, 200)
         self.assertEqual(update_response.data["my_profile"]["nickname"], "달빛")
-        self.assertEqual(
-            update_response.data["my_profile"]["default_nickname"],
+        self.assertNotIn(
             self.owner_participant.leaderboard_nickname,
+            update_response.data["my_profile"]["nickname_options"],
         )
         self.assertEqual(profile_response.status_code, 200)
         self.assertEqual(profile_response.data["my_profile"]["avatar_key"], "moon")
@@ -309,11 +309,17 @@ class ChatApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["my_profile"]["nickname"], "")
+        nickname_options = response.data["my_profile"]["nickname_options"]
         self.assertEqual(
-            response.data["my_profile"]["default_nickname"],
-            self.owner_participant.leaderboard_nickname,
+            nickname_options,
+            [
+                nickname
+                for nickname in LEADERBOARD_NICKNAMES
+                if nickname != self.owner_participant.leaderboard_nickname
+            ],
         )
-        self.assertNotIn("default_nickname", response.data["counterpart_profile"])
+        self.assertNotIn(self.owner_participant.leaderboard_nickname, nickname_options)
+        self.assertNotIn("nickname_options", response.data["counterpart_profile"])
         profile_payload = json.dumps(response.data, ensure_ascii=False, default=str)
         self.assertNotIn(self.owner_participant.display_name, profile_payload)
         self.assertNotIn(self.counterpart.display_name, profile_payload)

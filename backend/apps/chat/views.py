@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.push import send_web_push_async
 from apps.realtime.events import publish_user_events_on_commit
+from apps.teams.leaderboard_config import LEADERBOARD_NICKNAMES
 from .models import ChatProfile, FeedbackMessage, Notification, Message
 from .serializers import (
     ChatProfileUpdateSerializer,
@@ -211,7 +212,11 @@ class ChatProfileView(APIView):
                         owner=room.me,
                         counterpart=room.counterpart,
                     ),
-                    default_nickname=room.me.leaderboard_nickname,
+                    nickname_options=[
+                        nickname
+                        for nickname in LEADERBOARD_NICKNAMES
+                        if nickname != room.me.leaderboard_nickname
+                    ],
                 ),
                 "counterpart_profile": _profile_payload(
                     get_or_create_chat_profile(owner=room.counterpart, counterpart=room.me),
@@ -244,7 +249,11 @@ class ChatProfileView(APIView):
             {
                 "my_profile": _profile_payload(
                     profile,
-                    default_nickname=room.me.leaderboard_nickname,
+                    nickname_options=[
+                        nickname
+                        for nickname in LEADERBOARD_NICKNAMES
+                        if nickname != room.me.leaderboard_nickname
+                    ],
                 )
             }
         )
@@ -339,14 +348,14 @@ class NotificationClearView(APIView):
         return Response({"deleted_count": deleted_count})
 
 
-def _profile_payload(profile, *, default_nickname=None):
+def _profile_payload(profile, *, nickname_options=None):
     payload = {
         "nickname": profile.nickname,
         "image_url": profile.image.url if profile.image else None,
         "avatar_key": profile.avatar_key,
     }
-    if default_nickname is not None:
-        payload["default_nickname"] = default_nickname
+    if nickname_options is not None:
+        payload["nickname_options"] = nickname_options
     return payload
 
 
