@@ -240,7 +240,7 @@ Windows에서는 로컬 전용 PostgreSQL·Redis와 개발 서버를 한 번에 
 
 최초 실행 시 무시된 `backend/.env.local`, `frontend/.env.local`에 로컬 전용 키와 주소를 생성한다. PostgreSQL 데이터는 `data/local-postgres`, NAS 덤프는 `data/local-db-backups`, 프로세스 상태와 로그는 `tmp/local-dev`에 저장한다.
 
-`--refresh-db-from-nas`는 `127.0.0.1:15432`의 SSH 터널을 읽기 전용으로 사용해 custom-format 덤프를 만든다. 물리 PostgreSQL 디렉터리는 복사하지 않는다. 복원 대상은 별도 로컬 DB로 검증하며, 복원 직후 Web Push 구독과 카카오 토큰·권한을 제거하고 카카오 알림을 비활성화한다. 로컬 백엔드는 `SCHEDULER_ENABLED=false`, `OUTBOUND_NOTIFICATIONS_ENABLED=false`로 실행되어 외부 알림을 발송하지 않는다.
+`--refresh-db-from-nas`는 `127.0.0.1:15432`를 소유한 프로세스가 실제 `ssh`인지 확인한 뒤 터널을 읽기 전용으로 사용해 custom-format 덤프를 만든다. 물리 PostgreSQL 디렉터리는 복사하지 않는다. 복원 대상은 별도 로컬 DB로 검증한다. 모든 로컬 시작에서 Web Push 구독과 카카오 토큰·권한을 제거하고 카카오 알림을 비활성화하며, 로컬 로그인도 해당 자격정보를 다시 저장하지 않는다. 로컬 백엔드는 `SCHEDULER_ENABLED=false`, `OUTBOUND_NOTIFICATIONS_ENABLED=false`로 실행되어 외부 알림을 발송하지 않는다.
 
 종료 스크립트는 자신이 기록한 프런트·백엔드 PID와 `mymanito-local` Compose 프로젝트만 중지하며 로컬 DB 데이터와 NAS 덤프는 삭제하지 않는다.
 

@@ -11,6 +11,7 @@ from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 from .models import IOSWebPushSubscription, User, WebPushDevice
 from .push import send_web_push, send_web_push_async
 from .services import refresh_kakao_access_token
+from .views import KakaoLoginView
 
 
 class KakaoLoginViewTests(TestCase):
@@ -44,11 +45,12 @@ class KakaoLoginViewTests(TestCase):
         },
     )
     def test_issues_service_jwt_without_talk_message_consent(self, *_mocks):
-        response = APIClient().post(
-            "/api/accounts/kakao/login/",
-            {"authorization_code": "authorization-code"},
-            format="json",
-        )
+        with self.settings(OUTBOUND_NOTIFICATIONS_ENABLED=True):
+            response = APIClient().post(
+                "/api/accounts/kakao/login/",
+                {"authorization_code": "authorization-code"},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
@@ -63,6 +65,36 @@ class KakaoLoginViewTests(TestCase):
         self.assertEqual(user.email, "manito@example.com")
         self.assertEqual(user.kakao_refresh_token, "kakao-refresh-token")
         self.assertIsNotNone(user.last_login)
+
+    def test_does_not_store_notification_credentials_when_delivery_is_disabled(self):
+        profile = {
+            "id": 123456789,
+            "kakao_account": {
+                "email": "manito@example.com",
+                "profile": {
+                    "nickname": "마니또",
+                    "profile_image_url": "https://example.com/profile.png",
+                },
+            },
+        }
+        token_data = {
+            "access_token": "kakao-access-token",
+            "refresh_token": "kakao-refresh-token",
+            "expires_in": 3600,
+        }
+
+        with self.settings(OUTBOUND_NOTIFICATIONS_ENABLED=False):
+            user = KakaoLoginView._upsert_user(
+                profile,
+                token_data,
+                ["profile_nickname", "profile_image", "account_email", "talk_message"],
+            )
+
+        self.assertFalse(user.kakao_notification_enabled)
+        self.assertEqual(user.kakao_access_token, "")
+        self.assertEqual(user.kakao_refresh_token, "")
+        self.assertIsNone(user.kakao_access_token_expires_at)
+        self.assertEqual(user.kakao_scopes, [])
 
     @patch("apps.accounts.views.fetch_kakao_scopes", return_value=["talk_message"])
     @patch(

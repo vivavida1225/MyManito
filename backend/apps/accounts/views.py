@@ -1,4 +1,5 @@
 from django.contrib.auth.models import update_last_login
+from django.conf import settings
 from django.db import transaction
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -113,15 +114,23 @@ class KakaoLoginView(APIView):
         user.kakao_nickname = nickname
         user.profile_image_url = profile_image_url
         user.email = email
-        user.kakao_access_token = token_data["access_token"]
-        user.kakao_refresh_token = token_data["refresh_token"]
-        user.kakao_access_token_expires_at = get_access_token_expires_at(token_data)
-        user.kakao_scopes = scopes
+        if settings.OUTBOUND_NOTIFICATIONS_ENABLED:
+            user.kakao_access_token = token_data["access_token"]
+            user.kakao_refresh_token = token_data["refresh_token"]
+            user.kakao_access_token_expires_at = get_access_token_expires_at(token_data)
+            user.kakao_scopes = scopes
+        else:
+            user.kakao_notification_enabled = False
+            user.kakao_access_token = ""
+            user.kakao_refresh_token = ""
+            user.kakao_access_token_expires_at = None
+            user.kakao_scopes = []
         user.save(
             update_fields=[
                 "kakao_nickname",
                 "profile_image_url",
                 "email",
+                "kakao_notification_enabled",
                 "kakao_access_token",
                 "kakao_refresh_token",
                 "kakao_access_token_expires_at",

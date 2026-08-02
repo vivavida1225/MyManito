@@ -114,6 +114,19 @@ function Assert-LocalPostgresTarget {
     }
 }
 
+function Assert-NasSshTunnel {
+    param([int]$Port)
+    $listener = Get-NetTCPConnection -State Listen -LocalAddress "127.0.0.1" -LocalPort $Port -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $listener) {
+        throw "NAS SSH tunnel is not reachable at 127.0.0.1:$Port"
+    }
+    $owner = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+    if (-not $owner -or $owner.ProcessName -ne "ssh") {
+        $ownerName = if ($owner) { $owner.ProcessName } else { "unknown" }
+        throw "Refusing NAS dump because 127.0.0.1:$Port is owned by $ownerName, not an SSH tunnel."
+    }
+}
+
 function Stop-LocalProcess {
     param([System.Diagnostics.Process]$Process)
     if ($Process -and -not $Process.HasExited) {
@@ -198,6 +211,7 @@ if (Test-Path -LiteralPath $StatePath) {
     if ($runningPids.Count -gt 0) {
         throw "Local development processes are already running. Run scripts\local-stop.cmd first."
     }
+    Remove-Item -LiteralPath $StatePath -Force
 }
 
 Invoke-Native -FilePath "docker" -Arguments @("info", "--format", "{{.ServerVersion}}")
@@ -217,9 +231,7 @@ if ($RefreshDbFromNas) {
     if ($NasTunnelPort -eq $PostgresPort) {
         throw "NAS source port and local PostgreSQL port must be different."
     }
-    if (-not (Test-TcpPort -Port $NasTunnelPort)) {
-        throw "NAS SSH tunnel is not reachable at 127.0.0.1:$NasTunnelPort"
-    }
+    Assert-NasSshTunnel -Port $NasTunnelPort
     foreach ($requiredKey in @("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD")) {
         if (-not $productionEnv[$requiredKey]) {
             throw "backend/.env is missing $requiredKey for the NAS dump."
@@ -274,19 +286,6 @@ if ($RefreshDbFromNas) {
         "--no-owner", "--no-acl", "/backups/$dumpName"
     ))
 
-    $sanitizeSql = @"
-TRUNCATE TABLE accounts_webpushdevice, accounts_ioswebpushsubscription RESTART IDENTITY;
-UPDATE accounts_user
-SET kakao_notification_enabled = FALSE,
-    kakao_access_token = '',
-    kakao_refresh_token = '',
-    kakao_access_token_expires_at = NULL,
-    kakao_scopes = '[]'::jsonb;
-"@
-    Invoke-Native -FilePath "docker" -Arguments ($composeArgs + @(
-        "exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-U", $localDatabaseUser,
-        "-d", $localDatabase, "-c", $sanitizeSql
-    ))
 }
 
 $python = Join-Path $BackendRoot "venv\Scripts\python.exe"
@@ -296,6 +295,21 @@ if (-not (Test-Path -LiteralPath $python)) {
 $managePy = Join-Path $BackendRoot "manage.py"
 Invoke-Native -FilePath $python -Arguments @($managePy, "migrate", "--noinput")
 Invoke-Native -FilePath $python -Arguments @($managePy, "check")
+
+Assert-LocalPostgresTarget -ComposeArguments $composeArgs
+$sanitizeSql = @"
+TRUNCATE TABLE accounts_webpushdevice, accounts_ioswebpushsubscription RESTART IDENTITY;
+UPDATE accounts_user
+SET kakao_notification_enabled = FALSE,
+    kakao_access_token = '',
+    kakao_refresh_token = '',
+    kakao_access_token_expires_at = NULL,
+    kakao_scopes = '[]'::jsonb;
+"@
+Invoke-Native -FilePath "docker" -Arguments ($composeArgs + @(
+    "exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-U", $localDatabaseUser,
+    "-d", $localDatabase, "-c", $sanitizeSql
+))
 
 $unsafeNotificationRows = (& docker @composeArgs exec -T postgres psql -U $localDatabaseUser -d $localDatabase -Atc @"
 SELECT
