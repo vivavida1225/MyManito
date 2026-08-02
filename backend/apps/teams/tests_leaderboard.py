@@ -1,10 +1,12 @@
+from datetime import datetime, timezone as datetime_timezone
+
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 
 from .leaderboard_services import award_visit_score, generate_leaderboard_snapshot
-from .models import Participant, ScoreEvent, Team
+from .models import LeaderboardSnapshot, Participant, ScoreEvent, Team
 from .services import create_team_with_matching
 
 
@@ -27,14 +29,22 @@ class LeaderboardApiTests(TestCase):
         self.member_participant.claimed_by = self.member
         self.member_participant.save(update_fields=["claimed_by"])
 
-    def test_leaderboard_hides_score_until_results_are_released(self):
+    def test_leaderboard_exposes_only_my_score_until_results_are_released(self):
         client = APIClient()
         client.force_authenticate(self.member)
+        participants = list(self.team.participants.order_by("id"))
+        participants[0].leaderboard_score = 12
+        participants[1].leaderboard_score = 7
+        participants[2].leaderboard_score = 3
+        Participant.objects.bulk_update(participants, ["leaderboard_score"])
+        generate_leaderboard_snapshot(self.team)
 
         active_response = client.get(f"/api/teams/{self.team.code}/leaderboard/")
 
         self.assertEqual(active_response.status_code, 200)
         self.assertFalse(active_response.data["results_released"])
+        self.assertEqual(active_response.data["my_rank"], 2)
+        self.assertEqual(active_response.data["my_score"], 7)
         self.assertNotIn("민지", [entry["name"] for entry in active_response.data["entries"]])
         self.assertNotIn("leaderboard_score", str(active_response.data))
         self.assertTrue(all("score" not in entry for entry in active_response.data["entries"]))
@@ -84,3 +94,17 @@ class LeaderboardApiTests(TestCase):
 
         self.assertEqual([entry["rank"] for entry in snapshot.rankings], [1, 1, 3])
         self.assertEqual([entry["participant_id"] for entry in snapshot.rankings[:2]], [participants[0].id, participants[1].id])
+
+    def test_next_update_at_uses_three_hour_boundaries(self):
+        generated_at = datetime(2026, 8, 2, 4, 20, tzinfo=datetime_timezone.utc)
+        LeaderboardSnapshot.objects.filter(team=self.team).update(generated_at=generated_at)
+        client = APIClient()
+        client.force_authenticate(self.member)
+
+        response = client.get(f"/api/teams/{self.team.code}/leaderboard/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.data["next_update_at"],
+            datetime(2026, 8, 2, 6, 0, tzinfo=datetime_timezone.utc),
+        )

@@ -16,6 +16,7 @@ from .leaderboard_config import (
     CHAT_MESSAGE_POINTS,
     LEADERBOARD_AVATAR_KEYS,
     LEADERBOARD_NICKNAMES,
+    LEADERBOARD_SNAPSHOT_INTERVAL_HOURS,
     TEAM_VISIT_COOLDOWN_HOURS,
     TEAM_VISIT_POINTS,
 )
@@ -195,7 +196,12 @@ def leaderboard_payload(*, team, user):
     snapshot = LeaderboardSnapshot.objects.filter(team=team).first() or generate_leaderboard_snapshot(team)
     participant_ids = [entry["participant_id"] for entry in snapshot.rankings]
     participants = Participant.objects.in_bulk(participant_ids)
-    my_participant_id = Participant.objects.filter(team=team, claimed_by=user).values_list("id", flat=True).first()
+    my_participant = Participant.objects.filter(team=team, claimed_by=user).only("id", "leaderboard_score").first()
+    my_participant_id = my_participant.id if my_participant else None
+    my_rank = next(
+        (ranking["rank"] for ranking in snapshot.rankings if ranking["participant_id"] == my_participant_id),
+        0,
+    )
     released = results_released(team)
     entries = []
     for ranking in snapshot.rankings:
@@ -212,11 +218,17 @@ def leaderboard_payload(*, team, user):
         if released:
             entry["score"] = participant.leaderboard_score
         entries.append(entry)
-    next_update_at = snapshot.generated_at.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    snapshot_hour = snapshot.generated_at.replace(minute=0, second=0, microsecond=0)
+    hours_until_next_update = LEADERBOARD_SNAPSHOT_INTERVAL_HOURS - (
+        snapshot_hour.hour % LEADERBOARD_SNAPSHOT_INTERVAL_HOURS
+    )
+    next_update_at = snapshot_hour + timedelta(hours=hours_until_next_update)
     return {
         "team_code": team.code,
         "updated_at": snapshot.generated_at,
         "next_update_at": next_update_at,
         "results_released": released,
+        "my_rank": my_rank,
+        "my_score": my_participant.leaderboard_score if my_participant else 0,
         "entries": entries,
     }

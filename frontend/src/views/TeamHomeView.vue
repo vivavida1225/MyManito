@@ -18,6 +18,7 @@ const team = ref(null);
 const assignment = ref(null);
 const countdown = ref(null);
 const rooms = ref([]);
+const leaderboard = ref(null);
 const errorMessage = ref("");
 const isLoading = ref(false);
 const now = ref(Date.now());
@@ -106,13 +107,14 @@ async function loadTeamHome() {
       return;
     }
 
-    api.post(`/teams/${props.teamCode}/leaderboard/visit/`).catch(() => {});
+    const visitRequest = api.post(`/teams/${props.teamCode}/leaderboard/visit/`).catch(() => {});
 
-    const [assignmentResult, countdownResult, roomResult, myTeamsResult] = await Promise.allSettled([
+    const [assignmentResult, countdownResult, roomResult, myTeamsResult, leaderboardResult] = await Promise.allSettled([
       api.get(`/teams/${props.teamCode}/my-assignment/`),
       api.get(`/teams/${props.teamCode}/countdown/`),
       api.get("/chat/rooms/"),
       api.get("/teams/mine/"),
+      visitRequest.then(() => api.get(`/teams/${props.teamCode}/leaderboard/`)),
     ]);
 
     if (assignmentResult.status === "fulfilled") {
@@ -125,6 +127,9 @@ async function loadTeamHome() {
     }
     if (roomResult.status === "fulfilled") {
       rooms.value = (roomResult.value.data.rooms || []).filter((room) => room.team_code === props.teamCode);
+    }
+    if (leaderboardResult.status === "fulfilled") {
+      leaderboard.value = leaderboardResult.value.data;
     }
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || "팀 정보를 불러오지 못했습니다.";
@@ -168,8 +173,8 @@ onUnmounted(() => window.clearInterval(countdownTimer));
         class="flex items-center justify-between rounded-3xl bg-violet-50 p-5 shadow-sm ring-1 ring-violet-100 transition hover:bg-violet-100"
       >
         <span>
-          <span class="block text-sm font-bold text-violet-600">우리 팀의 익명 게임</span>
-          <span class="mt-1 block text-lg font-extrabold text-slate-800">팀 랭킹 보기</span>
+          <span class="block text-xl font-extrabold text-slate-800">팀 랭킹 보기</span>
+          <span class="mt-1 block text-sm font-bold text-violet-600">{{ leaderboard?.my_rank ?? 0 }}위/{{ leaderboard?.my_score ?? 0 }}점</span>
         </span>
         <span class="text-xl text-violet-600" aria-hidden="true">→</span>
       </RouterLink>

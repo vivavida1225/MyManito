@@ -58,7 +58,7 @@ onMounted(loadLeaderboard);
       <section class="overflow-hidden rounded-[2rem] bg-violet-100 shadow-sm ring-1 ring-violet-100">
         <div class="bg-violet-600 px-4 pb-8 pt-5 text-center text-white">
           <p class="mx-auto inline-flex rounded-full bg-white px-6 py-2 text-lg font-extrabold text-violet-700 shadow-sm">LEADERBOARD</p>
-          <p class="mt-3 text-xs font-medium text-violet-100">마지막 갱신 {{ updatedLabel }} · 매시 정각 갱신</p>
+          <p class="mt-3 text-xs font-medium text-violet-100">마지막 갱신 {{ updatedLabel }} · 3시간마다 정각 갱신</p>
 
           <div class="mt-5 flex min-h-48 items-end justify-center gap-2">
             <article

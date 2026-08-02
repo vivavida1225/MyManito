@@ -27,6 +27,7 @@ class ChatConfig(AppConfig):
             cleanup_expired_ended_teams,
             cleanup_expired_notifications,
         )
+        from apps.teams.leaderboard_config import LEADERBOARD_SNAPSHOT_INTERVAL_HOURS
         from apps.teams.leaderboard_services import generate_active_leaderboard_snapshots
 
         scheduler.add_job(
@@ -56,6 +57,7 @@ class ChatConfig(AppConfig):
         scheduler.add_job(
             generate_active_leaderboard_snapshots,
             trigger="cron",
+            hour=f"*/{LEADERBOARD_SNAPSHOT_INTERVAL_HOURS}",
             minute=0,
             id="generate-active-leaderboard-snapshots",
             replace_existing=True,
