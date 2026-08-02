@@ -35,7 +35,7 @@ from .services import (
     update_team_reveal_mode,
     update_team_rules,
 )
-from .leaderboard_services import award_visit_score, leaderboard_payload
+from .leaderboard_services import award_service_access_scores, leaderboard_payload
 
 
 class TeamCreateView(APIView):
@@ -134,17 +134,12 @@ class TeamLeaderboardView(APIView):
         return Response(leaderboard_payload(team=team, user=request.user))
 
 
-class TeamLeaderboardVisitView(APIView):
+class ServiceAccessScoreView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, code):
-        team = _get_team(code)
-        if isinstance(team, Response):
-            return team
-        if team.owner_id != request.user.id and not Participant.objects.filter(team=team, claimed_by=request.user).exists():
-            return Response({"detail": "이 팀에 접속할 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
-        award_visit_score(team=team, user=request.user)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def post(self, request):
+        awarded_team_count = award_service_access_scores(user=request.user)
+        return Response({"awarded_team_count": awarded_team_count})
 
 
 class UnclaimedParticipantListView(APIView):

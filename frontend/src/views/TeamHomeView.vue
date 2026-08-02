@@ -107,14 +107,12 @@ async function loadTeamHome() {
       return;
     }
 
-    const visitRequest = api.post(`/teams/${props.teamCode}/leaderboard/visit/`).catch(() => {});
-
     const [assignmentResult, countdownResult, roomResult, myTeamsResult, leaderboardResult] = await Promise.allSettled([
       api.get(`/teams/${props.teamCode}/my-assignment/`),
       api.get(`/teams/${props.teamCode}/countdown/`),
       api.get("/chat/rooms/"),
       api.get("/teams/mine/"),
-      visitRequest.then(() => api.get(`/teams/${props.teamCode}/leaderboard/`)),
+      api.get(`/teams/${props.teamCode}/leaderboard/`),
     ]);
 
     if (assignmentResult.status === "fulfilled") {

@@ -77,7 +77,7 @@ class Participant(models.Model):
     leaderboard_nickname = models.CharField(max_length=100, blank=True)
     leaderboard_avatar_key = models.CharField(max_length=30, blank=True)
     leaderboard_score = models.PositiveIntegerField(default=0)
-    last_visit_score_at = models.DateTimeField(null=True, blank=True)
+    last_service_access_score_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -103,7 +103,8 @@ class ScoreEvent(models.Model):
     class Type(models.TextChoices):
         CHAT_MESSAGE = "CHAT_MESSAGE", "채팅 전송"
         CHAT_LIKE = "CHAT_LIKE", "좋아요"
-        TEAM_VISIT = "TEAM_VISIT", "팀 접속"
+        TEAM_VISIT = "TEAM_VISIT", "팀 접속 (이전 정책)"
+        SERVICE_ACCESS = "SERVICE_ACCESS", "서비스 접속"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="score_events")
     participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="score_events")

@@ -8,7 +8,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from .leaderboard_config import (
-    CARED_FOR_TO_MANITO_MULTIPLIER,
+    CARED_FOR_TO_MANITO_LIKE_MULTIPLIER,
     CHAT_LIKE_COOLDOWN_HOURS,
     CHAT_LIKE_POINTS,
     CHAT_MESSAGE_COOLDOWN_MINUTES,
@@ -17,8 +17,8 @@ from .leaderboard_config import (
     LEADERBOARD_AVATAR_KEYS,
     LEADERBOARD_NICKNAMES,
     LEADERBOARD_SNAPSHOT_INTERVAL_HOURS,
-    TEAM_VISIT_COOLDOWN_HOURS,
-    TEAM_VISIT_POINTS,
+    SERVICE_ACCESS_COOLDOWN_HOURS,
+    SERVICE_ACCESS_POINTS,
 )
 from .models import LeaderboardSnapshot, Participant, ScoreEvent, Team
 
@@ -102,12 +102,11 @@ def award_message_score(*, message, room_id):
         return False
     if base_events.filter(created_at__date=timezone.localdate(now)).count() >= CHAT_MESSAGE_DAILY_LIMIT:
         return False
-    multiplier = CARED_FOR_TO_MANITO_MULTIPLIER if _is_cared_for_by(participant, message.recipient) else 1
     _award(
         team=team,
         participant=participant,
         event_type=ScoreEvent.Type.CHAT_MESSAGE,
-        points=CHAT_MESSAGE_POINTS * multiplier,
+        points=CHAT_MESSAGE_POINTS,
         room_id=room_id,
         source_message=message,
     )
@@ -131,7 +130,7 @@ def award_like_score(*, room):
         next_available_at = latest_event.created_at + timedelta(hours=CHAT_LIKE_COOLDOWN_HOURS)
         if next_available_at > timezone.now():
             return False, next_available_at
-    multiplier = CARED_FOR_TO_MANITO_MULTIPLIER if _is_cared_for_by(participant, counterpart) else 1
+    multiplier = CARED_FOR_TO_MANITO_LIKE_MULTIPLIER if _is_cared_for_by(participant, counterpart) else 1
     _award(
         team=team,
         participant=participant,
@@ -146,19 +145,35 @@ def award_like_score(*, room):
 
 
 @transaction.atomic
-def award_visit_score(*, team, user):
-    """Claim 완료 참여자만 팀 접속 점수를 받는다. 관리자는 조회만 가능하다."""
-    locked_team = Team.objects.select_for_update().get(pk=team.pk)
-    participant = Participant.objects.select_for_update().filter(team=locked_team, claimed_by=user).first()
-    if not participant or not _is_active(locked_team):
-        return False
+def award_service_access_scores(*, user):
+    """서비스 접속 시 Claim 완료된 모든 활성 팀에 점수를 부여한다."""
+    team_ids = list(
+        Participant.objects.filter(team__status=Team.Status.ACTIVE, claimed_by=user)
+        .order_by("team_id")
+        .values_list("team_id", flat=True)
+    )
     now = timezone.now()
-    if participant.last_visit_score_at and participant.last_visit_score_at + timedelta(hours=TEAM_VISIT_COOLDOWN_HOURS) > now:
-        return False
-    _award(team=locked_team, participant=participant, event_type=ScoreEvent.Type.TEAM_VISIT, points=TEAM_VISIT_POINTS)
-    participant.last_visit_score_at = now
-    participant.save(update_fields=["last_visit_score_at"])
-    return True
+    awarded_team_count = 0
+    for team_id in team_ids:
+        team = Team.objects.select_for_update().filter(pk=team_id, status=Team.Status.ACTIVE).first()
+        if not team:
+            continue
+        participant = Participant.objects.select_for_update().get(team=team, claimed_by=user)
+        if (
+            participant.last_service_access_score_at
+            and participant.last_service_access_score_at + timedelta(hours=SERVICE_ACCESS_COOLDOWN_HOURS) > now
+        ):
+            continue
+        _award(
+            team=team,
+            participant=participant,
+            event_type=ScoreEvent.Type.SERVICE_ACCESS,
+            points=SERVICE_ACCESS_POINTS,
+        )
+        participant.last_service_access_score_at = now
+        participant.save(update_fields=["last_service_access_score_at"])
+        awarded_team_count += 1
+    return awarded_team_count
 
 
 @transaction.atomic

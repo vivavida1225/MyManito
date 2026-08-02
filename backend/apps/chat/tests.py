@@ -12,7 +12,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.teams.leaderboard_config import CHAT_MESSAGE_POINTS, LEADERBOARD_NICKNAMES
+from apps.teams.leaderboard_config import CHAT_LIKE_POINTS, CHAT_MESSAGE_POINTS, LEADERBOARD_NICKNAMES
 from apps.teams.models import Participant, ScoreEvent, Team
 from apps.teams.leaderboard_services import award_message_score
 from apps.teams.services import create_team_with_matching
@@ -206,7 +206,10 @@ class ChatApiTests(TestCase):
         self.assertEqual(second_response.status_code, 200)
         self.assertEqual(second_response.data["next_available_at"], first_response.data["next_available_at"])
         self.assertEqual(ended_response.status_code, 400)
-        self.assertEqual(ScoreEvent.objects.filter(event_type=ScoreEvent.Type.CHAT_LIKE).count(), 1)
+        like_event = ScoreEvent.objects.get(event_type=ScoreEvent.Type.CHAT_LIKE)
+        self.assertEqual(first_response.data["next_available_at"], like_event.created_at + timedelta(hours=3))
+        self.owner_participant.refresh_from_db()
+        self.assertEqual(self.owner_participant.leaderboard_score, CHAT_LIKE_POINTS)
 
     @patch("apps.teams.leaderboard_services.timezone.now")
     def test_message_score_obeys_cooldown_daily_limit_and_end_state(self, mock_now):
@@ -216,7 +219,7 @@ class ChatApiTests(TestCase):
         room_id = make_room_id(caregiver.id, cared_for.id)
         now = timezone.now()
 
-        for index in range(6):
+        for index in range(15):
             message = Message.objects.create(
                 team=self.team,
                 sender=cared_for,
@@ -229,7 +232,7 @@ class ChatApiTests(TestCase):
         over_limit_message = Message.objects.create(team=self.team, sender=cared_for, recipient=caregiver, content="일일 제한")
         self.assertFalse(award_message_score(message=over_limit_message, room_id=room_id))
         cared_for.refresh_from_db()
-        self.assertEqual(cared_for.leaderboard_score, CHAT_MESSAGE_POINTS * 3 * 6)
+        self.assertEqual(cared_for.leaderboard_score, CHAT_MESSAGE_POINTS * 15)
 
         Team.objects.filter(pk=self.team.pk).update(status=Team.Status.ENDED, ended_at=timezone.now())
         ended_message = Message.objects.create(team=self.team, sender=cared_for, recipient=caregiver, content="종료 후")

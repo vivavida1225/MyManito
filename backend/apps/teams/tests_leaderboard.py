@@ -1,11 +1,12 @@
-from datetime import datetime, timezone as datetime_timezone
+from datetime import datetime, timedelta, timezone as datetime_timezone
+from unittest.mock import patch
 
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 
-from .leaderboard_services import award_visit_score, generate_leaderboard_snapshot
+from .leaderboard_services import generate_leaderboard_snapshot
 from .models import LeaderboardSnapshot, Participant, ScoreEvent, Team
 from .services import create_team_with_matching
 
@@ -76,12 +77,39 @@ class LeaderboardApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_visit_score_has_server_cooldown(self):
-        self.assertTrue(award_visit_score(team=self.team, user=self.member))
-        self.assertFalse(award_visit_score(team=self.team, user=self.member))
+    @patch("apps.teams.leaderboard_services.timezone.now")
+    def test_service_access_scores_all_active_teams_with_three_hour_cooldown(self, mock_now):
+        first_access_at = datetime(2026, 8, 2, 3, 0, tzinfo=datetime_timezone.utc)
+        mock_now.return_value = first_access_at
+        second_team = create_team_with_matching(
+            owner=self.member,
+            validated_data={
+                "code": "second-leaderboard-team",
+                "rules": "",
+                "reciprocal_ratio": 0,
+                "is_participating": True,
+                "parsed_participant_names": ["민지", "서연", "준호"],
+            },
+        )
+        second_participant = Participant.objects.get(team=second_team, claimed_by=self.member)
+        client = APIClient()
+        client.force_authenticate(self.member)
+
+        first_response = client.post("/api/teams/leaderboard/access/")
+        mock_now.return_value = first_access_at + timedelta(hours=2, minutes=59)
+        cooldown_response = client.post("/api/teams/leaderboard/access/")
+        mock_now.return_value = first_access_at + timedelta(hours=3)
+        next_response = client.post("/api/teams/leaderboard/access/")
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(first_response.data["awarded_team_count"], 2)
+        self.assertEqual(cooldown_response.data["awarded_team_count"], 0)
+        self.assertEqual(next_response.data["awarded_team_count"], 2)
         self.member_participant.refresh_from_db()
-        self.assertEqual(self.member_participant.leaderboard_score, 1)
-        self.assertEqual(ScoreEvent.objects.filter(event_type=ScoreEvent.Type.TEAM_VISIT).count(), 1)
+        second_participant.refresh_from_db()
+        self.assertEqual(self.member_participant.leaderboard_score, 2)
+        self.assertEqual(second_participant.leaderboard_score, 2)
+        self.assertEqual(ScoreEvent.objects.filter(event_type=ScoreEvent.Type.SERVICE_ACCESS).count(), 4)
 
     def test_snapshot_uses_tied_rank_and_stable_participant_order(self):
         participants = list(self.team.participants.order_by("id"))

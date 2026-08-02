@@ -10,7 +10,7 @@ from apps.chat.models import Message, Notification
 
 from .models import LeaderboardSnapshot, Participant, ScoreEvent, Team
 from .services import create_team_with_matching
-from .leaderboard_services import award_visit_score, generate_leaderboard_snapshot
+from .leaderboard_services import generate_leaderboard_snapshot
 
 
 class TeamMatchingTests(TestCase):

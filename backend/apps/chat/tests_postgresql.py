@@ -7,7 +7,7 @@ from django.db import close_old_connections, connection
 from django.test import TransactionTestCase
 
 from apps.accounts.models import User
-from apps.teams.leaderboard_services import award_visit_score
+from apps.teams.leaderboard_services import award_service_access_scores
 from apps.teams.models import Participant, ScoreEvent, Team
 
 from .models import Message
@@ -125,13 +125,12 @@ class PostgreSQLConcurrentWriteTests(TransactionTestCase):
         self.assertEqual(Message.objects.filter(team_id=room["team_id"]).count(), 2)
 
     @patch("apps.chat.services.notify_message_recipient_async")
-    def test_chat_and_visit_score_can_write_concurrently(self, _notify_mock):
+    def test_chat_and_service_access_score_can_write_concurrently(self, _notify_mock):
         room = self.create_room(4)
 
-        def visit_team():
-            team = Team.objects.get(pk=room["team_id"])
+        def access_service():
             user = User.objects.get(pk=room["second_user_id"])
-            award_visit_score(team=team, user=user)
+            award_service_access_scores(user=user)
 
         self.run_concurrently(
             lambda: self.send_message(
@@ -139,7 +138,7 @@ class PostgreSQLConcurrentWriteTests(TransactionTestCase):
                 room["first_user_id"],
                 "점수와 동시에 보내는 메시지",
             ),
-            visit_team,
+            access_service,
         )
 
         self.assertTrue(
@@ -151,6 +150,6 @@ class PostgreSQLConcurrentWriteTests(TransactionTestCase):
         self.assertTrue(
             ScoreEvent.objects.filter(
                 team_id=room["team_id"],
-                event_type=ScoreEvent.Type.TEAM_VISIT,
+                event_type=ScoreEvent.Type.SERVICE_ACCESS,
             ).exists()
         )

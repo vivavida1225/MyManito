@@ -5,6 +5,7 @@ import api from "../api";
 import { useAuthStore } from "../stores/auth";
 
 const REDIRECT_PATH_KEY = "redirectPath";
+let serviceAccessRecorded = false;
 
 const router = createRouter({
   history: createWebHistory(),
@@ -129,9 +130,13 @@ const router = createRouter({
   ],
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore(pinia);
   auth.initialize();
+
+  if (!auth.isAuthenticated) {
+    serviceAccessRecorded = false;
+  }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     localStorage.setItem(REDIRECT_PATH_KEY, to.fullPath);
@@ -142,6 +147,15 @@ router.beforeEach((to) => {
 
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return { name: "dashboard" };
+  }
+
+  if (to.meta.requiresAuth && !serviceAccessRecorded) {
+    serviceAccessRecorded = true;
+    try {
+      await api.post("/teams/leaderboard/access/");
+    } catch {
+      serviceAccessRecorded = false;
+    }
   }
 
   if (to.name === "chat-room" || to.name === "feedback-room") {
