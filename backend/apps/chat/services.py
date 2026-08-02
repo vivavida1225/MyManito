@@ -473,6 +473,8 @@ def get_or_create_chat_profile(*, owner, counterpart):
 
 def notify_message_recipient(message_id):
     """수신자의 웹 푸시와 카카오 나와의 채팅방에 익명 알림을 보낸다."""
+    if not settings.OUTBOUND_NOTIFICATIONS_ENABLED:
+        return False
     message = Message.objects.select_related("recipient__claimed_by").filter(pk=message_id).first()
     if not message or not message.recipient.claimed_by_id:
         return False

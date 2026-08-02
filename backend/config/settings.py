@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+ENV_FILE = Path(os.environ.get("DJANGO_ENV_FILE", BASE_DIR / ".env"))
+load_dotenv(ENV_FILE)
 
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
@@ -169,3 +170,4 @@ FIREBASE_SERVICE_ACCOUNT_FILE = os.environ.get("FIREBASE_SERVICE_ACCOUNT_FILE", 
 IOS_WEB_PUSH_VAPID_PRIVATE_KEY = os.environ.get("IOS_WEB_PUSH_VAPID_PRIVATE_KEY", "")
 IOS_WEB_PUSH_VAPID_SUBJECT = os.environ.get("IOS_WEB_PUSH_VAPID_SUBJECT", "")
 SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").lower() == "true"
+OUTBOUND_NOTIFICATIONS_ENABLED = os.environ.get("OUTBOUND_NOTIFICATIONS_ENABLED", "true").lower() == "true"

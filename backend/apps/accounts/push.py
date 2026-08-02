@@ -33,6 +33,8 @@ def _send_web_push_in_background(*, user_id, title, body, path):
 
 def send_web_push(*, user_id, title, body, path):
     """사용자가 선택한 기기 유형에 맞춰 FCM 또는 표준 Web Push를 보낸다."""
+    if not settings.OUTBOUND_NOTIFICATIONS_ENABLED:
+        return 0
     user = User.objects.filter(pk=user_id).only("id", "notification_platform").first()
     if not user:
         return 0

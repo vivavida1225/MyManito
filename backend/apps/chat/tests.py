@@ -211,6 +211,23 @@ class ChatApiTests(TestCase):
         self.owner_participant.refresh_from_db()
         self.assertEqual(self.owner_participant.leaderboard_score, CHAT_LIKE_POINTS)
 
+    @patch("apps.chat.services.requests.post")
+    @patch("apps.chat.services.send_web_push")
+    def test_skips_message_delivery_when_outbound_notifications_are_disabled(self, push_mock, request_mock):
+        message = Message.objects.create(
+            team=self.team,
+            sender=self.owner_participant,
+            recipient=self.counterpart,
+            content="로컬 알림 차단 확인",
+        )
+
+        with self.settings(OUTBOUND_NOTIFICATIONS_ENABLED=False):
+            delivered = notify_message_recipient(message.id)
+
+        self.assertFalse(delivered)
+        push_mock.assert_not_called()
+        request_mock.assert_not_called()
+
     @patch("apps.teams.leaderboard_services.timezone.now")
     def test_message_score_obeys_cooldown_daily_limit_and_end_state(self, mock_now):
         mock_now.return_value = timezone.make_aware(datetime(2026, 7, 21, 12, 0))
@@ -569,7 +586,10 @@ class KakaoNotificationTests(TestCase):
             content="새 메시지",
         )
 
-        with self.settings(MYMANITO_APP_URL="https://mymanito.wara.synology.me"):
+        with self.settings(
+            MYMANITO_APP_URL="https://mymanito.wara.synology.me",
+            OUTBOUND_NOTIFICATIONS_ENABLED=True,
+        ):
             result = notify_message_recipient(message.id)
 
         message.refresh_from_db()

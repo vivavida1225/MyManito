@@ -259,7 +259,10 @@ class WebPushDeviceTests(TestCase):
         messaging.Message.side_effect = lambda **kwargs: kwargs
         get_messaging_mock.return_value = messaging
 
-        with self.settings(FIREBASE_SERVICE_ACCOUNT_JSON="{}"):
+        with self.settings(
+            FIREBASE_SERVICE_ACCOUNT_JSON="{}",
+            OUTBOUND_NOTIFICATIONS_ENABLED=True,
+        ):
             sent_count = send_web_push(
                 user_id=self.user.id,
                 title="새 소식",
@@ -290,6 +293,21 @@ class WebPushDeviceTests(TestCase):
             {"user_id": self.user.id, "title": "새 소식", "body": "확인해 보세요.", "path": "/notifications"},
         )
         thread_mock.return_value.start.assert_called_once()
+
+    @patch("apps.accounts.push._send_ios_web_push")
+    @patch("apps.accounts.push._send_firebase_web_push")
+    def test_skips_delivery_when_outbound_notifications_are_disabled(self, firebase_send_mock, ios_send_mock):
+        with self.settings(OUTBOUND_NOTIFICATIONS_ENABLED=False):
+            sent_count = send_web_push(
+                user_id=self.user.id,
+                title="새 소식",
+                body="확인해 보세요.",
+                path="/notifications",
+            )
+
+        self.assertEqual(sent_count, 0)
+        firebase_send_mock.assert_not_called()
+        ios_send_mock.assert_not_called()
 
 
 class NotificationSettingsTests(TestCase):
@@ -358,12 +376,13 @@ class NotificationSettingsTests(TestCase):
         self.user.notification_platform = User.NotificationPlatform.IOS
         self.user.save(update_fields=["notification_platform"])
 
-        sent_count = send_web_push(
-            user_id=self.user.id,
-            title="새 소식",
-            body="확인해 보세요.",
-            path="/notifications",
-        )
+        with self.settings(OUTBOUND_NOTIFICATIONS_ENABLED=True):
+            sent_count = send_web_push(
+                user_id=self.user.id,
+                title="새 소식",
+                body="확인해 보세요.",
+                path="/notifications",
+            )
 
         self.assertEqual(sent_count, 1)
         ios_send_mock.assert_called_once()

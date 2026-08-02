@@ -218,33 +218,31 @@ python -c "import secrets; print(secrets.token_urlsafe(64))"
 
 ### 3. 개발 서버 실행
 
+Windows에서는 로컬 전용 PostgreSQL·Redis와 개발 서버를 한 번에 실행한다. 운영 `.env`, NAS DB, SSH 터널은 실행 대상으로 사용하지 않는다.
+
 ```powershell
-# PostgreSQL과 Redis
-docker compose up -d postgres redis
+# 빈 로컬 DB 또는 기존 로컬 DB로 시작
+.\scripts\local-start.cmd
 
-# backend
-cd backend
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
+# NAS DB의 최신 논리 덤프를 로컬 DB에 복원한 뒤 시작
+.\scripts\local-start.cmd --refresh-db-from-nas
 
-# frontend (별도 터미널)
-cd frontend
-npm install
-npm run dev
+# 프런트·백엔드·로컬 DB·Redis를 한 번에 중지
+.\scripts\local-stop.cmd
 ```
 
-로컬에서 Django를 직접 실행할 때는 Compose 내부 호스트 이름을 사용할 수 없으므로 `backend/.env`에 아래 주소를 지정한다.
+로컬 실행 주소는 다음과 같다.
 
-```env
-CHANNEL_REDIS_URL=redis://127.0.0.1:6379/0
-POSTGRES_HOST=127.0.0.1
-POSTGRES_PORT=5432
-```
+- 프런트엔드: `http://localhost:5173`
+- 백엔드: `http://localhost:8000`
+- PostgreSQL: `127.0.0.1:55432`
+- Redis: `127.0.0.1:56379`
 
-`docker compose up -d`로 전체 서비스를 실행할 때는 Compose가 Redis와 PostgreSQL의 내부 호스트 이름을 backend에 자동 주입한다.
+최초 실행 시 무시된 `backend/.env.local`, `frontend/.env.local`에 로컬 전용 키와 주소를 생성한다. PostgreSQL 데이터는 `data/local-postgres`, NAS 덤프는 `data/local-db-backups`, 프로세스 상태와 로그는 `tmp/local-dev`에 저장한다.
+
+`--refresh-db-from-nas`는 `127.0.0.1:15432`의 SSH 터널을 읽기 전용으로 사용해 custom-format 덤프를 만든다. 물리 PostgreSQL 디렉터리는 복사하지 않는다. 복원 대상은 별도 로컬 DB로 검증하며, 복원 직후 Web Push 구독과 카카오 토큰·권한을 제거하고 카카오 알림을 비활성화한다. 로컬 백엔드는 `SCHEDULER_ENABLED=false`, `OUTBOUND_NOTIFICATIONS_ENABLED=false`로 실행되어 외부 알림을 발송하지 않는다.
+
+종료 스크립트는 자신이 기록한 프런트·백엔드 PID와 `mymanito-local` Compose 프로젝트만 중지하며 로컬 DB 데이터와 NAS 덤프는 삭제하지 않는다.
 
 ### SQLite에서 PostgreSQL로 최초 이관
 
