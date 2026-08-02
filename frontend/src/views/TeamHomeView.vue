@@ -177,6 +177,15 @@ onUnmounted(() => window.clearInterval(countdownTimer));
         <span class="text-xl text-violet-600" aria-hidden="true">→</span>
       </RouterLink>
 
+      <RouterLink
+        v-if="isClaimed"
+        :to="{ name: 'team-quiz', params: { teamCode } }"
+        class="flex items-center justify-between rounded-3xl bg-amber-50 p-5 shadow-sm ring-1 ring-amber-100 transition hover:bg-amber-100"
+      >
+        <span><span class="block text-xl font-extrabold text-slate-800">비밀 퀴즈</span><span class="mt-1 block text-sm font-bold text-amber-700">내 할 일과 회차별 결과 보기</span></span>
+        <span class="text-xl text-amber-600" aria-hidden="true">→</span>
+      </RouterLink>
+
       <div v-if="teamRules.length" class="rounded-2xl border border-slate-200 px-4 py-4">
         <p class="font-bold text-slate-700">📣우리 팀 규칙</p>
         <ol class="mt-3 space-y-1 text-sm font-medium leading-6 text-slate-600">
@@ -186,7 +195,7 @@ onUnmounted(() => window.clearInterval(countdownTimer));
         </ol>
       </div>
 
-      <div v-else class="rounded-3xl bg-white p-5 text-center shadow-sm ring-1 ring-slate-100">
+      <div v-if="assignment?.is_claimed === false" class="rounded-3xl bg-white p-5 text-center shadow-sm ring-1 ring-slate-100">
         <img :src="waitingImage" alt="기다리는 마니" class="mx-auto w-28" />
         <h2 class="mt-1 text-lg font-extrabold text-slate-800">아직 본인 확인 전이에요</h2>
         <p class="mt-2 text-sm leading-6 text-slate-500">이름을 확인하면 내가 챙겨줄 사람과 채팅방이 열려요.</p>

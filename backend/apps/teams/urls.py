@@ -20,6 +20,15 @@ from .views import (
     TeamResultReleaseView,
     UnclaimedParticipantListView,
 )
+from apps.quizzes.views import (
+    AdminQuizRoundDecisionView,
+    AdminQuizRoundReminderView,
+    AdminQuizView,
+    EvaluationConfirmView,
+    ParticipantQuizView,
+    ReferenceAnswerConfirmView,
+    SolutionDraftView,
+)
 
 
 urlpatterns = [
@@ -28,12 +37,39 @@ urlpatterns = [
     path("leaderboard/access/", ServiceAccessScoreView.as_view(), name="service-access-score"),
     path("<str:code>/", TeamDetailView.as_view(), name="team-detail"),
     path("<str:code>/leaderboard/", TeamLeaderboardView.as_view(), name="team-leaderboard"),
+    path("<str:code>/quiz/", ParticipantQuizView.as_view(), name="team-quiz"),
+    path(
+        "<str:code>/quiz/items/<int:item_id>/reference-answer/confirm/",
+        ReferenceAnswerConfirmView.as_view(),
+        name="quiz-reference-confirm",
+    ),
+    path(
+        "<str:code>/quiz/items/<int:item_id>/solution-draft/",
+        SolutionDraftView.as_view(),
+        name="quiz-solution-draft",
+    ),
+    path(
+        "<str:code>/quiz/items/<int:item_id>/evaluation/confirm/",
+        EvaluationConfirmView.as_view(),
+        name="quiz-evaluation-confirm",
+    ),
     path("<str:code>/unclaimed/", UnclaimedParticipantListView.as_view(), name="team-unclaimed"),
     path("<str:code>/claim/", ParticipantClaimView.as_view(), name="participant-claim"),
     path("<str:code>/my-assignment/", MyAssignmentView.as_view(), name="my-assignment"),
     path("<str:code>/result/", TeamResultView.as_view(), name="team-result"),
     path("<str:code>/countdown/", TeamCountdownView.as_view(), name="team-countdown"),
     path("<str:code>/admin/dashboard/", TeamAdminDashboardView.as_view(), name="team-admin-dashboard"),
+    path("<str:code>/admin/quiz/", AdminQuizView.as_view(), name="admin-team-quiz"),
+    path(
+        "<str:code>/admin/quiz/rounds/<int:round_id>/decision/",
+        AdminQuizRoundDecisionView.as_view(),
+        name="admin-quiz-round-decision",
+    ),
+    path(
+        "<str:code>/admin/quiz/rounds/<int:round_id>/remind-pending/",
+        AdminQuizRoundReminderView.as_view(),
+        name="admin-quiz-round-remind-pending",
+    ),
     path("<str:code>/admin/planned-end/", TeamPlannedEndView.as_view(), name="team-planned-end"),
     path("<str:code>/admin/reveal-mode/", TeamRevealModeView.as_view(), name="team-reveal-mode"),
     path("<str:code>/admin/rules/", TeamRulesView.as_view(), name="team-rules"),

@@ -45,8 +45,15 @@
           <RouterLink
             :to="{ name: 'notifications' }"
             class="relative rounded-full p-2 text-slate-600 transition hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400"
-            aria-label="알림함"
+            :aria-label="hasPendingQuizAttention ? '확인할 비밀 퀴즈 작업이 있습니다. 알림함' : '알림함'"
           >
+            <img
+              v-if="hasPendingQuizAttention"
+              :src="alertEmphasizeImage"
+              alt=""
+              class="quiz-alert-emphasis pointer-events-none absolute -bottom-2.5 -left-3.5 z-10 h-8 w-8 object-contain"
+              aria-hidden="true"
+            />
             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
               <path d="M10 21h4" />
@@ -79,6 +86,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import api from "./api";
+import alertEmphasizeImage from "./assets/alertEmphasize.webp";
 import navbarLogo from "./assets/MyManito_navbar.webp";
 import { useAuthStore } from "./stores/auth";
 import { useRealtimeStore } from "./stores/realtime";
@@ -91,16 +99,21 @@ const needsTalkMessageConsent = computed(
   () => !auth.kakaoProfile?.kakao_scopes?.includes("talk_message"),
 );
 const unreadNotificationCount = ref(0);
+const hasPendingQuizAttention = ref(false);
 
 async function loadUnreadNotificationCount() {
   if (!auth.isAuthenticated) {
     unreadNotificationCount.value = 0;
+    hasPendingQuizAttention.value = false;
     return;
   }
 
   try {
     const response = await api.get("/notifications/");
     unreadNotificationCount.value = response.data.unread_count || 0;
+    hasPendingQuizAttention.value =
+      response.data.has_pending_quiz_reference_answer === true
+      || response.data.has_pending_quiz_solve_reminder === true;
   } catch {
     // 알림 조회 실패가 현재 화면 사용을 막지는 않는다.
   }
@@ -111,13 +124,30 @@ onMounted(() => {
   realtime.start();
   window.addEventListener("notifications-updated", loadUnreadNotificationCount);
   window.addEventListener("realtime-notifications-changed", loadUnreadNotificationCount);
+  window.addEventListener("realtime-quiz-changed", loadUnreadNotificationCount);
 });
 
 onUnmounted(() => {
   realtime.stop();
   window.removeEventListener("notifications-updated", loadUnreadNotificationCount);
   window.removeEventListener("realtime-notifications-changed", loadUnreadNotificationCount);
+  window.removeEventListener("realtime-quiz-changed", loadUnreadNotificationCount);
 });
 
 watch(() => route.fullPath, loadUnreadNotificationCount);
 </script>
+
+<style scoped>
+@keyframes quiz-alert-pulse {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.12); }
+}
+
+.quiz-alert-emphasis {
+  animation: quiz-alert-pulse 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-alert-emphasis { animation: none; }
+}
+</style>

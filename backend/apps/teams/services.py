@@ -133,6 +133,9 @@ def claim_participant(*, team, user, participant_id):
     except IntegrityError as error:
         raise ClaimError("이 팀에서 이미 다른 이름을 확인했습니다.") from error
     create_claim_notifications(team=team, participant=participant, claiming_user=user)
+    from apps.quizzes.services import notify_all_claimed_if_ready
+
+    notify_all_claimed_if_ready(team)
     return participant
 
 
@@ -253,11 +256,25 @@ def get_team_countdown(team):
 
 
 @transaction.atomic
-def update_team_planned_end(*, team, planned_end_date, planned_end_timezone):
+def update_team_planned_end(
+    *,
+    team,
+    planned_end_date,
+    planned_end_timezone,
+    confirm_quiz_collision=False,
+):
     """진행 중인 팀의 안내용 종료 예정일을 수정한다."""
     locked_team = Team.objects.select_for_update().get(pk=team.pk)
     if locked_team.status != Team.Status.ACTIVE:
         raise AdminAccessError("종료된 팀의 종료 예정일은 수정할 수 없습니다.")
+
+    from apps.quizzes.services import prepare_planned_end_change
+
+    prepare_planned_end_change(
+        locked_team,
+        planned_end_date,
+        confirmed=confirm_quiz_collision,
+    )
 
     locked_team.planned_end_date = planned_end_date
     locked_team.planned_end_timezone = planned_end_timezone
@@ -449,6 +466,14 @@ def reset_participant_claim(*, team, participant_id):
     if participant.claimed_by_id is None:
         raise ClaimError("아직 확인되지 않은 참여자입니다.")
 
+    from apps.quizzes.models import QuizRound, TeamQuizSettings
+
+    quiz_settings = TeamQuizSettings.objects.filter(team=team).first()
+    if quiz_settings and quiz_settings.enabled:
+        raise ClaimError("퀴즈 모드를 끈 뒤 Claim을 초기화할 수 있습니다.")
+    if QuizRound.objects.filter(team=team, status=QuizRound.Status.ACTIVE).exists():
+        raise ClaimError("진행 중인 퀴즈 회차가 정산 또는 취소된 뒤 Claim을 초기화할 수 있습니다.")
+
     participant.claimed_by = None
     participant.save(update_fields=["claimed_by"])
 
@@ -460,6 +485,9 @@ def end_team_and_retain_chat(*, team):
     if locked_team.status == Team.Status.ENDED:
         raise AdminAccessError("이미 종료된 팀입니다.")
 
+    from apps.quizzes.services import finalize_for_team_end
+
+    finalize_for_team_end(locked_team, timezone.now())
     generate_leaderboard_snapshot(locked_team)
     locked_team.status = Team.Status.ENDED
     locked_team.ended_at = timezone.now()

@@ -290,6 +290,8 @@ class NotificationListView(APIView):
         return Response(
             {
                 "unread_count": unread_count,
+                "has_pending_quiz_reference_answer": _has_pending_quiz_reference_answer(request.user),
+                "has_pending_quiz_solve_reminder": _has_pending_quiz_solve_reminder(request.user),
                 "notifications": [
                     {
                         "id": notification.id,
@@ -346,6 +348,18 @@ class NotificationClearView(APIView):
         if deleted_count:
             publish_user_events_on_commit([request.user.id], "notifications.changed")
         return Response({"deleted_count": deleted_count})
+
+
+def _has_pending_quiz_reference_answer(user):
+    from apps.quizzes.services import has_pending_reference_answer
+
+    return has_pending_reference_answer(user)
+
+
+def _has_pending_quiz_solve_reminder(user):
+    from apps.quizzes.services import has_pending_solve_reminder
+
+    return has_pending_solve_reminder(user)
 
 
 def _profile_payload(profile, *, nickname_options=None):

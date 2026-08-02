@@ -97,6 +97,13 @@ class Notification(models.Model):
         DDAY = "DDAY", "D-Day"
         RESULT_AVAILABLE = "RESULT_AVAILABLE", "결과 공개"
         TEAM_ANNOUNCEMENT = "TEAM_ANNOUNCEMENT", "팀 공지"
+        QUIZ_READY = "QUIZ_READY", "퀴즈 활성화 가능"
+        QUIZ_REFERENCE_OPEN = "QUIZ_REFERENCE_OPEN", "기준 답안 입력"
+        QUIZ_SOLVE_OPEN = "QUIZ_SOLVE_OPEN", "퀴즈 풀이"
+        QUIZ_EVALUATION_OPEN = "QUIZ_EVALUATION_OPEN", "퀴즈 평가"
+        QUIZ_END_CONFLICT = "QUIZ_END_CONFLICT", "종료 예정일 충돌"
+        QUIZ_POOL_EXHAUSTED = "QUIZ_POOL_EXHAUSTED", "질문 풀 소진"
+        QUIZ_ROUND_CANCELLED = "QUIZ_ROUND_CANCELLED", "퀴즈 회차 취소"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
     team = models.ForeignKey(
@@ -118,6 +125,7 @@ class Notification(models.Model):
     title = models.CharField(max_length=100)
     body = models.CharField(max_length=255, blank=True)
     data = models.JSONField(default=dict, blank=True)
+    dedupe_key = models.CharField(max_length=180, null=True, blank=True, unique=True)
     is_read = models.BooleanField(default=False)
     read_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

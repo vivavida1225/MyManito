@@ -79,6 +79,13 @@ const router = createRouter({
       props: true,
     },
     {
+      path: "/teams/:teamCode/quiz",
+      name: "team-quiz",
+      component: () => import("../views/TeamQuizView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
       path: "/teams/:teamCode/assignment",
       name: "assignment-result",
       component: () => import("../views/AssignmentResultView.vue"),
@@ -120,6 +127,13 @@ const router = createRouter({
       path: "/teams/:teamCode/admin",
       name: "team-admin-dashboard",
       component: () => import("../views/AdminDashboardView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
+      path: "/teams/:teamCode/admin/quiz",
+      name: "admin-team-quiz",
+      component: () => import("../views/AdminQuizView.vue"),
       meta: { requiresAuth: true },
       props: true,
     },

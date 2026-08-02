@@ -123,9 +123,15 @@ class TeamDeleteSerializer(serializers.Serializer):
 class TeamPlannedEndSerializer(serializers.Serializer):
     planned_end_date = serializers.DateField(required=True)
     planned_end_timezone = serializers.CharField(max_length=64, required=True)
+    confirm_quiz_collision = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
-        validate_planned_end_fields(attrs)
+        validate_planned_end_fields(
+            {
+                "planned_end_date": attrs.get("planned_end_date"),
+                "planned_end_timezone": attrs.get("planned_end_timezone", ""),
+            }
+        )
         return attrs
 
 

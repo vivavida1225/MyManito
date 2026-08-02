@@ -36,6 +36,7 @@ from .services import (
     update_team_rules,
 )
 from .leaderboard_services import award_service_access_scores, leaderboard_payload
+from apps.quizzes.services import QuizConflictConfirmationRequired
 
 
 class TeamCreateView(APIView):
@@ -246,6 +247,15 @@ class TeamPlannedEndView(APIView):
         serializer.is_valid(raise_exception=True)
         try:
             team = update_team_planned_end(team=team, **serializer.validated_data)
+        except QuizConflictConfirmationRequired as error:
+            return Response(
+                {
+                    "detail": str(error),
+                    "code": "QUIZ_COLLISION_CONFIRMATION_REQUIRED",
+                    "quiz_round_id": error.round_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         except AdminAccessError as error:
             return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 

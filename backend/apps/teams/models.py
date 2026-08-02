@@ -105,10 +105,12 @@ class ScoreEvent(models.Model):
         CHAT_LIKE = "CHAT_LIKE", "좋아요"
         TEAM_VISIT = "TEAM_VISIT", "팀 접속 (이전 정책)"
         SERVICE_ACCESS = "SERVICE_ACCESS", "서비스 접속"
+        QUIZ_SOLVER_RESULT = "QUIZ_SOLVER_RESULT", "퀴즈 풀이 결과"
+        QUIZ_AUTHOR_ADJUSTMENT = "QUIZ_AUTHOR_ADJUSTMENT", "퀴즈 작성자 보상·감점"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="score_events")
     participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="score_events")
-    event_type = models.CharField(max_length=20, choices=Type.choices)
+    event_type = models.CharField(max_length=30, choices=Type.choices)
     room_id = models.CharField(max_length=50, blank=True)
     source_message = models.OneToOneField(
         "chat.Message",
@@ -117,8 +119,26 @@ class ScoreEvent(models.Model):
         on_delete=models.SET_NULL,
         related_name="score_event",
     )
-    points = models.PositiveIntegerField()
+    quiz_item = models.ForeignKey(
+        "quizzes.QuizItem",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="score_events",
+    )
+    points = models.IntegerField()
+    requested_points = models.IntegerField(null=True, blank=True)
+    reason = models.CharField(max_length=40, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["quiz_item", "event_type"],
+                condition=Q(quiz_item__isnull=False),
+                name="unique_quiz_score_event_role",
+            )
+        ]
 
 
 class LeaderboardSnapshot(models.Model):

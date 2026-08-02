@@ -232,6 +232,9 @@ def leaderboard_payload(*, team, user):
         }
         if released:
             entry["score"] = participant.leaderboard_score
+            from apps.quizzes.services import participant_quiz_rate
+
+            entry["quiz_score_rate"] = participant_quiz_rate(participant)
         entries.append(entry)
     snapshot_hour = snapshot.generated_at.replace(minute=0, second=0, microsecond=0)
     hours_until_next_update = LEADERBOARD_SNAPSHOT_INTERVAL_HOURS - (

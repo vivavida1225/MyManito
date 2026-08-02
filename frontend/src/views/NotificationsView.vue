@@ -29,6 +29,13 @@ function notificationIcon(kind) {
     DDAY: "📅",
     RESULT_AVAILABLE: "🎉",
     TEAM_ANNOUNCEMENT: "📣",
+    QUIZ_READY: "🧩",
+    QUIZ_REFERENCE_OPEN: "❗",
+    QUIZ_SOLVE_OPEN: "🔎",
+    QUIZ_EVALUATION_OPEN: "⭐",
+    QUIZ_END_CONFLICT: "⚠️",
+    QUIZ_POOL_EXHAUSTED: "📭",
+    QUIZ_ROUND_CANCELLED: "⏹️",
   }[kind] || "🔔";
 }
 
@@ -78,6 +85,16 @@ async function openNotification(notification) {
 
   if (notification.team_code) {
     await router.push({ name: "team-home", params: { teamCode: notification.team_code } });
+  }
+
+  if (["QUIZ_READY", "QUIZ_END_CONFLICT", "QUIZ_POOL_EXHAUSTED"].includes(notification.kind)) {
+    await router.push({ name: "admin-team-quiz", params: { teamCode: notification.team_code } });
+    return;
+  }
+
+  if (["QUIZ_REFERENCE_OPEN", "QUIZ_SOLVE_OPEN", "QUIZ_EVALUATION_OPEN", "QUIZ_ROUND_CANCELLED"].includes(notification.kind)) {
+    await router.push({ name: "team-quiz", params: { teamCode: notification.team_code } });
+    return;
   }
 }
 

@@ -38,6 +38,29 @@ const participantSteps = [
   },
 ];
 
+const participantQuizGuides = [
+  {
+    title: "비밀 퀴즈는 언제 시작하나요?",
+    description: "모든 참가자가 본인 확인을 마치고 관리자가 퀴즈 모드를 켜면 회차가 시작돼요. 내 차례가 열리면 알림과 비밀 퀴즈 메뉴에서 해야 할 일과 마감 시각을 확인할 수 있어요.",
+  },
+  {
+    title: "나에 관한 기준 답안 확정하기",
+    description: "첫 단계에서는 나에 관한 질문에 기준 답안을 입력해요. 확정한 답안은 바꿀 수 없으니 내용을 꼭 확인해 주세요. 기준 답안을 확정하지 않으면 해당 문제는 정상적인 풀이로 이어지지 않아요.",
+  },
+  {
+    title: "내가 챙겨줄 사람의 문제 풀기",
+    description: "풀이기간에는 내가 챙겨줄 사람의 질문에 답하고 여러 번 저장할 수 있어요. 공백만 저장해도 이전의 유효한 답안은 지워지지 않으며, 마감 시 마지막으로 저장한 답안이 자동 제출돼요.",
+  },
+  {
+    title: "마니또의 답안 평가하기",
+    description: "풀이가 제출되면 내 기준 답안과 마니또의 풀이를 비교해 1~5점을 저장해요. 평가 마감 전에는 ‘평가 수정’으로 몇 번이든 바꿀 수 있고, 마지막 저장 점수가 최종 제출돼요. 저장한 평가가 없으면 2점으로 자동 처리돼요.",
+  },
+  {
+    title: "결과와 익명성 확인하기",
+    description: "정산된 뒤에는 내가 풀었던 문제의 기준 답안과 회차 결과를 볼 수 있어요. 평가 화면에는 풀이자의 신원이 표시되지 않고, 정확한 리더보드 증감값과 전체 퀴즈 점수율은 게임 결과 공개 전에는 공개되지 않아요.",
+  },
+];
+
 const adminSteps = [
   {
     title: "팀 만들기",
@@ -62,6 +85,29 @@ const adminSteps = [
   {
     title: "게임 종료와 결과 공개",
     description: "게임 종료는 팀 코드를 다시 입력해야 실행돼요. 자동 공개 방식은 바로 모든 참가자에게 결과를 공개하고, 외부 공개 방식은 관리자만 전체 배정표를 확인한 뒤 이후에 ‘참가자에게 공개하기’를 눌러요.",
+  },
+];
+
+const adminQuizGuides = [
+  {
+    title: "퀴즈 모드 켜기",
+    description: "모든 참가자가 본인 확인을 마치면 관리자 퀴즈 설정에서 모드를 켤 수 있어요. 첫 회차는 관리자 브라우저 시간대의 다음 현지 날짜 00:00에 시작하며, 첫 회차가 시작된 뒤에는 시간대를 바꿀 수 없어요.",
+  },
+  {
+    title: "기간과 다음 질문 설정하기",
+    description: "기준 답안 입력일수와 풀이일수는 각각 1일 이상, 합계 7일 이하로 설정해요. 평가기간은 기준 답안 기간과 같아요. 다음 공통 질문을 입력하면 다음 회차에 한 번 사용되고, 비워 두면 참가자별로 이전에 받지 않은 시스템 질문이 무작위 배정돼요.",
+  },
+  {
+    title: "익명 진행 현황과 재알림",
+    description: "관리자 화면에는 최신 2개 활성 회차의 완료 인원 집계만 표시되고, 참가자 명단이나 역할 관계는 제공되지 않아요. ‘미완료자에게 재알림’을 누르면 서버가 현재 단계의 대상자만 계산해 앱 알림과 설정된 푸시를 보내며, 관리자에게 대상 명단은 공개하지 않아요.",
+  },
+  {
+    title: "종료 예정일 충돌 처리하기",
+    description: "종료 예정일이 퀴즈 일정과 겹치면 입력기간 중에는 해당 회차를 진행하거나 취소하도록 안내돼요. 결정 마감까지 응답하지 않으면 회차가 자동 취소되고 퀴즈 모드가 꺼져요. 이미 풀이 중인 회차와 겹치면 확인 후에만 종료 예정일을 저장할 수 있어요.",
+  },
+  {
+    title: "퀴즈 OFF와 팀 조기 종료",
+    description: "퀴즈 모드를 꺼도 이미 시작한 회차는 마감에 따라 정산되고 다음 회차 예약만 사라져요. 팀을 조기 종료하면 이미 지난 마감은 먼저 정산하고, 아직 마감되지 않은 퀴즈는 점수 없이 취소해요. 사용할 시스템 질문이 부족해지면 모드가 자동으로 꺼지고 관리자에게 알려 드려요.",
   },
 ];
 </script>
@@ -108,6 +154,17 @@ const adminSteps = [
             </div>
           </li>
         </ol>
+
+        <section class="mt-8 rounded-3xl bg-amber-50 p-5 ring-1 ring-amber-100">
+          <p class="text-sm font-bold text-amber-700">비밀 퀴즈 이용법</p>
+          <h3 class="mt-1 text-lg font-extrabold text-slate-800">저장과 마감 규칙을 확인해요</h3>
+          <div class="mt-4 space-y-3">
+            <article v-for="guide in participantQuizGuides" :key="guide.title" class="rounded-2xl bg-white p-4 shadow-sm">
+              <h4 class="font-bold text-slate-800">{{ guide.title }}</h4>
+              <p class="mt-1 text-sm leading-6 text-slate-600">{{ guide.description }}</p>
+            </article>
+          </div>
+        </section>
       </div>
 
       <div v-else>
@@ -122,6 +179,17 @@ const adminSteps = [
             </div>
           </li>
         </ol>
+
+        <section class="mt-8 rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100">
+          <p class="text-sm font-bold text-violet-700">관리자 비밀 퀴즈 운영법</p>
+          <h3 class="mt-1 text-lg font-extrabold text-slate-800">익명성을 지키며 회차를 관리해요</h3>
+          <div class="mt-4 space-y-3">
+            <article v-for="guide in adminQuizGuides" :key="guide.title" class="rounded-2xl bg-white p-4 shadow-sm">
+              <h4 class="font-bold text-slate-800">{{ guide.title }}</h4>
+              <p class="mt-1 text-sm leading-6 text-slate-600">{{ guide.description }}</p>
+            </article>
+          </div>
+        </section>
       </div>
     </div>
   </section>

@@ -29,6 +29,7 @@ class ChatConfig(AppConfig):
         )
         from apps.teams.leaderboard_config import LEADERBOARD_SNAPSHOT_INTERVAL_HOURS
         from apps.teams.leaderboard_services import generate_active_leaderboard_snapshots
+        from apps.quizzes.services import process_quiz_timeline
 
         scheduler.add_job(
             cleanup_expired_attachments,
@@ -51,6 +52,14 @@ class ChatConfig(AppConfig):
             trigger="cron",
             minute=0,
             id="cleanup-expired-notifications",
+            replace_existing=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            process_quiz_timeline,
+            trigger="cron",
+            minute="*",
+            id="process-quiz-timeline",
             replace_existing=True,
             max_instances=1,
         )

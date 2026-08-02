@@ -26,6 +26,10 @@ const podiumEntries = computed(() => {
 });
 const remainingEntries = computed(() => (leaderboard.value?.entries || []).slice(3));
 
+function quizRateLabel(rate) {
+  return rate === null || rate === undefined ? "-" : `${Number(rate).toFixed(1)}%`;
+}
+
 async function loadLeaderboard() {
   isLoading.value = true;
   errorMessage.value = "";
@@ -88,6 +92,7 @@ onMounted(loadLeaderboard);
                 <p class="mt-2 flex min-h-8 w-full items-center justify-center overflow-hidden text-center text-xs font-extrabold leading-4 break-keep" :title="podium.entry.name">{{ podium.entry.name }}</p>
                 <p v-if="leaderboard.results_released" class="mt-0.5 w-full truncate text-xs text-slate-500">{{ podium.entry.game_nickname }}</p>
                 <p v-if="leaderboard.results_released" class="mt-1 text-sm font-extrabold text-violet-700">{{ podium.entry.score }}점</p>
+                <p v-if="leaderboard.results_released" class="mt-1 text-[11px] font-bold text-violet-600">퀴즈 {{ quizRateLabel(podium.entry.quiz_score_rate) }}</p>
                 <span v-if="podium.entry.is_me" class="mt-1 rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-bold text-amber-900">나</span>
               </template>
               <span v-else class="mt-7 text-sm text-slate-300">-</span>
@@ -114,6 +119,7 @@ onMounted(loadLeaderboard);
             </div>
             <div class="flex shrink-0 items-center gap-2">
               <span v-if="leaderboard.results_released" class="rounded-full bg-violet-600 px-3 py-1 text-sm font-extrabold text-white">{{ entry.score }}점</span>
+              <span v-if="leaderboard.results_released" class="text-xs font-bold text-violet-700">퀴즈 {{ quizRateLabel(entry.quiz_score_rate) }}</span>
               <span v-if="entry.is_me" class="rounded-full bg-amber-200 px-2 py-1 text-xs font-bold text-amber-900">나</span>
             </div>
           </article>

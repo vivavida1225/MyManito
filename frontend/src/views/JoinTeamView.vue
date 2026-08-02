@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import api from "../api";
 import waitingImage from "../assets/mani_waiting.webp";
@@ -7,8 +7,19 @@ import ClaimModal from "../components/ClaimModal.vue";
 import TeamDashboardCard from "../components/TeamDashboardCard.vue";
 import { useAuthStore } from "../stores/auth";
 
+const props = defineProps({
+  initialTeamCode: {
+    type: String,
+    default: "",
+  },
+  autoStart: {
+    type: Boolean,
+    default: false,
+  },
+});
+
 const auth = useAuthStore();
-const teamCode = ref("");
+const teamCode = ref(props.initialTeamCode);
 const team = ref(null);
 const participants = ref([]);
 const selectedParticipant = ref(null);
@@ -131,6 +142,12 @@ async function confirmClaim() {
     isLoading.value = false;
   }
 }
+
+onMounted(() => {
+  if (props.autoStart && teamCode.value.trim()) {
+    findTeam();
+  }
+});
 </script>
 
 <template>

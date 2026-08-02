@@ -120,6 +120,7 @@ export const useRealtimeStore = defineStore("realtime", {
           "chat.message.failed": "realtime-chat-message-failed",
           "chat.rooms.changed": "realtime-chat-rooms-changed",
           "notifications.changed": "realtime-notifications-changed",
+          "quiz.changed": "realtime-quiz-changed",
         }[event.event];
         if (eventName) {
           window.dispatchEvent(new CustomEvent(eventName, { detail: event }));

@@ -80,7 +80,7 @@ async function loadDashboard() {
   }
 }
 
-async function updatePlannedEnd() {
+async function updatePlannedEnd(confirmQuizCollision = false) {
   if (!plannedEndDate.value) {
     plannedEndError.value = "종료 예정일을 입력해 주세요.";
     return;
@@ -94,12 +94,22 @@ async function updatePlannedEnd() {
       {
         planned_end_date: plannedEndDate.value,
         planned_end_timezone: browserTimeZone,
+        confirm_quiz_collision: confirmQuizCollision,
       },
     );
     dashboard.value.planned_end_date = response.data.planned_end_date;
     dashboard.value.planned_end_timezone = response.data.planned_end_timezone;
     plannedEndDate.value = response.data.planned_end_date;
   } catch (error) {
+    if (
+      error.response?.status === 409
+      && error.response?.data?.code === "QUIZ_COLLISION_CONFIRMATION_REQUIRED"
+      && !confirmQuizCollision
+      && window.confirm("변경한 종료 예정일이 이미 풀이 중인 비밀 퀴즈 회차와 겹칩니다. 그래도 저장할까요?")
+    ) {
+      await updatePlannedEnd(true);
+      return;
+    }
     plannedEndError.value =
       error.response?.data?.detail ||
       error.response?.data?.planned_end_timezone?.[0] ||
@@ -265,6 +275,13 @@ onUnmounted(() => {
     <p v-if="announcementStatus" class="mt-3 text-sm font-medium text-emerald-700" role="status">{{ announcementStatus }}</p>
 
     <div v-if="dashboard" class="mt-6 space-y-6">
+      <RouterLink
+        :to="{ name: 'admin-team-quiz', params: { teamCode } }"
+        class="flex items-center justify-between rounded-2xl bg-amber-50 p-5 ring-1 ring-amber-200 transition hover:bg-amber-100"
+      >
+        <span><span class="block font-extrabold text-slate-900">비밀 퀴즈 설정</span><span class="mt-1 block text-xs leading-5 text-slate-600">퀴즈 모드, 일정, 공통 질문과 진행 현황을 관리합니다.</span></span>
+        <span class="text-xl text-amber-700" aria-hidden="true">→</span>
+      </RouterLink>
       <div class="rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 p-5 ring-1 ring-amber-100">
         <div class="flex items-end justify-between">
           <p class="font-semibold text-slate-900">참여 확인 현황</p>
@@ -295,7 +312,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <form class="rounded-xl border border-slate-200 p-4" @submit.prevent="updatePlannedEnd">
+      <form class="rounded-xl border border-slate-200 p-4" @submit.prevent="updatePlannedEnd()">
         <div class="flex items-center justify-between gap-3">
           <h2 class="font-semibold text-slate-900">게임 종료 예정일</h2>
           <span class="text-xs text-slate-400">{{ browserTimeZone }}</span>

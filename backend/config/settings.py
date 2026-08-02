@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "apps.analytics.apps.AnalyticsConfig",
     "apps.accounts.apps.AccountsConfig",
     "apps.teams.apps.TeamsConfig",
+    "apps.quizzes.apps.QuizzesConfig",
     "apps.chat.apps.ChatConfig",
 ]
 
@@ -171,3 +172,6 @@ IOS_WEB_PUSH_VAPID_PRIVATE_KEY = os.environ.get("IOS_WEB_PUSH_VAPID_PRIVATE_KEY"
 IOS_WEB_PUSH_VAPID_SUBJECT = os.environ.get("IOS_WEB_PUSH_VAPID_SUBJECT", "")
 SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").lower() == "true"
 OUTBOUND_NOTIFICATIONS_ENABLED = os.environ.get("OUTBOUND_NOTIFICATIONS_ENABLED", "true").lower() == "true"
+QUIZ_SCORE_MULTIPLIER = int(os.environ.get("QUIZ_SCORE_MULTIPLIER", "3"))
+if QUIZ_SCORE_MULTIPLIER < 1:
+    raise ImproperlyConfigured("QUIZ_SCORE_MULTIPLIER는 1 이상이어야 합니다.")

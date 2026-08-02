@@ -201,10 +201,16 @@ class TeamParticipationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         notifications = Notification.objects.filter(team=self.team)
-        self.assertEqual(notifications.count(), 1)
-        notification = notifications.get()
+        self.assertEqual(notifications.count(), 2)
+        notification = notifications.get(kind=Notification.Kind.PARTICIPANT_CLAIMED)
         self.assertEqual(notification.recipient, self.owner)
         self.assertEqual(notification.kind, Notification.Kind.PARTICIPANT_CLAIMED)
+        self.assertTrue(
+            notifications.filter(
+                recipient=self.owner,
+                kind=Notification.Kind.QUIZ_READY,
+            ).exists()
+        )
         self.assertFalse(
             notifications.filter(
                 recipient_id__in=[self.member.id, self.other_member.id, neighboring_member.id]
