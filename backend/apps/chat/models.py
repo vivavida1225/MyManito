@@ -97,6 +97,7 @@ class Notification(models.Model):
         DDAY = "DDAY", "D-Day"
         RESULT_AVAILABLE = "RESULT_AVAILABLE", "결과 공개"
         TEAM_ANNOUNCEMENT = "TEAM_ANNOUNCEMENT", "팀 공지"
+        LOW_SCORE_REVEAL = "LOW_SCORE_REVEAL", "하위 활동 참여자 공개"
         QUIZ_READY = "QUIZ_READY", "퀴즈 활성화 가능"
         QUIZ_REFERENCE_OPEN = "QUIZ_REFERENCE_OPEN", "기준 답안 입력"
         QUIZ_SOLVE_OPEN = "QUIZ_SOLVE_OPEN", "퀴즈 풀이"
@@ -123,7 +124,7 @@ class Notification(models.Model):
     )
     kind = models.CharField(max_length=30, choices=Kind.choices)
     title = models.CharField(max_length=100)
-    body = models.CharField(max_length=255, blank=True)
+    body = models.TextField(blank=True)
     data = models.JSONField(default=dict, blank=True)
     dedupe_key = models.CharField(max_length=180, null=True, blank=True, unique=True)
     is_read = models.BooleanField(default=False)

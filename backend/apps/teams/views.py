@@ -12,6 +12,7 @@ from .serializers import (
     TeamAnnouncementSerializer,
     TeamDeleteSerializer,
     TeamEndSerializer,
+    TeamLowScoreRevealSerializer,
     TeamPlannedEndSerializer,
     TeamRevealModeSerializer,
     TeamRulesSerializer,
@@ -35,6 +36,7 @@ from .services import (
     update_team_reveal_mode,
     update_team_rules,
 )
+from .low_score_reveal import low_score_reveal_settings_payload, update_low_score_reveal_settings
 from .leaderboard_services import award_service_access_scores, leaderboard_payload
 from apps.quizzes.services import QuizConflictConfirmationRequired
 
@@ -288,6 +290,30 @@ class TeamRevealModeView(APIView):
                 "reveal_status": team.reveal_status,
             }
         )
+
+
+class TeamLowScoreRevealView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, code):
+        team = _get_admin_team(request, code)
+        if isinstance(team, Response):
+            return team
+
+        serializer = TeamLowScoreRevealSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            team = update_low_score_reveal_settings(
+                team=team,
+                enabled=serializer.validated_data["enabled"],
+                interval_days=serializer.validated_data["interval_days"],
+                percentage=serializer.validated_data["percentage"],
+                timezone_name=serializer.validated_data["timezone"],
+            )
+        except ValueError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(low_score_reveal_settings_payload(team))
 
 
 class TeamRulesView(APIView):

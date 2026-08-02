@@ -45,6 +45,17 @@ class Team(models.Model):
     )
     planned_end_date = models.DateField(null=True, blank=True)
     planned_end_timezone = models.CharField(max_length=64, blank=True)
+    low_score_reveal_enabled = models.BooleanField(default=False)
+    low_score_reveal_interval_days = models.PositiveSmallIntegerField(
+        default=7,
+        validators=[MinValueValidator(1)],
+    )
+    low_score_reveal_percentage = models.PositiveSmallIntegerField(
+        default=30,
+        validators=[MinValueValidator(1), MaxValueValidator(50)],
+    )
+    low_score_reveal_timezone = models.CharField(max_length=64, blank=True)
+    low_score_reveal_next_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -29,6 +29,7 @@ function notificationIcon(kind) {
     DDAY: "📅",
     RESULT_AVAILABLE: "🎉",
     TEAM_ANNOUNCEMENT: "📣",
+    LOW_SCORE_REVEAL: "🚨",
     QUIZ_READY: "🧩",
     QUIZ_REFERENCE_OPEN: "❗",
     QUIZ_SOLVE_OPEN: "🔎",
@@ -192,7 +193,7 @@ onUnmounted(() => {
             <span class="truncate text-sm font-extrabold text-slate-800">{{ notification.title }}</span>
             <span v-if="!notification.is_read" class="h-2 w-2 shrink-0 rounded-full bg-rose-500" aria-label="읽지 않음" />
           </span>
-          <span class="mt-1 block text-sm leading-5 text-slate-500">{{ notification.body }}</span>
+          <span class="mt-1 block whitespace-pre-line text-sm leading-5 text-slate-500">{{ notification.body }}</span>
           <span class="mt-1 block text-xs text-slate-400">
             <template v-if="notification.team_code">{{ notification.team_code }} · </template>{{ formatCreatedAt(notification.created_at) }}
           </span>

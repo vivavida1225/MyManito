@@ -139,6 +139,20 @@ class TeamRevealModeSerializer(serializers.Serializer):
     reveal_mode = serializers.ChoiceField(choices=Team.RevealMode.values)
 
 
+class TeamLowScoreRevealSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    interval_days = serializers.IntegerField(min_value=1)
+    percentage = serializers.IntegerField(min_value=1, max_value=50)
+    timezone = serializers.CharField(max_length=64)
+
+    def validate_timezone(self, value):
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as error:
+            raise serializers.ValidationError("올바르지 않은 시간대입니다.") from error
+        return value
+
+
 class TeamRulesSerializer(serializers.Serializer):
     rules = serializers.CharField(allow_blank=True, max_length=10000, trim_whitespace=False)
 

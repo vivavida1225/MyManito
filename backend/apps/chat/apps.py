@@ -29,6 +29,7 @@ class ChatConfig(AppConfig):
         )
         from apps.teams.leaderboard_config import LEADERBOARD_SNAPSHOT_INTERVAL_HOURS
         from apps.teams.leaderboard_services import generate_active_leaderboard_snapshots
+        from apps.teams.low_score_reveal import process_low_score_reveals
         from apps.quizzes.services import process_quiz_timeline
 
         scheduler.add_job(
@@ -60,6 +61,14 @@ class ChatConfig(AppConfig):
             trigger="cron",
             minute="*",
             id="process-quiz-timeline",
+            replace_existing=True,
+            max_instances=1,
+        )
+        scheduler.add_job(
+            process_low_score_reveals,
+            trigger="cron",
+            minute="*",
+            id="process-low-score-reveals",
             replace_existing=True,
             max_instances=1,
         )

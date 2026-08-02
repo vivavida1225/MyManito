@@ -26,6 +26,13 @@ const isSavingPlannedEnd = ref(false);
 const revealMode = ref("AUTO");
 const revealModeError = ref("");
 const isSavingRevealMode = ref(false);
+const lowScoreRevealEnabled = ref(false);
+const lowScoreRevealIntervalDays = ref(7);
+const lowScoreRevealPercentage = ref(30);
+const lowScoreRevealError = ref("");
+const lowScoreRevealStatus = ref("");
+const isSavingLowScoreReveal = ref(false);
+const hasAppliedLowScoreRevealDefaults = ref(false);
 const showParticipantModal = ref(false);
 const showRulesModal = ref(false);
 const rulesDraft = ref("");
@@ -38,11 +45,36 @@ const announcementStatus = ref("");
 const isSendingAnnouncement = ref(false);
 const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Seoul";
 
+function syncLowScoreRevealSettings(data) {
+  lowScoreRevealEnabled.value = data.low_score_reveal_enabled;
+  lowScoreRevealIntervalDays.value = data.low_score_reveal_interval_days;
+  lowScoreRevealPercentage.value = data.low_score_reveal_percentage;
+}
+
+function applyInitialLowScoreRevealDefaults() {
+  if (
+    !lowScoreRevealEnabled.value
+    || hasAppliedLowScoreRevealDefaults.value
+    || dashboard.value?.low_score_reveal_timezone
+  ) {
+    return;
+  }
+  lowScoreRevealIntervalDays.value = 5;
+  lowScoreRevealPercentage.value = 20;
+  hasAppliedLowScoreRevealDefaults.value = true;
+}
+
 const progressPercent = computed(() => {
   if (!dashboard.value?.total_count) {
     return 0;
   }
   return Math.round((dashboard.value.claimed_count / dashboard.value.total_count) * 100);
+});
+const lowScoreRevealCount = computed(() => {
+  const totalCount = dashboard.value?.total_count || 0;
+  const percentage = Number(lowScoreRevealPercentage.value) || 0;
+  if (!totalCount || !percentage) return 0;
+  return Math.max(1, Math.ceil((totalCount * percentage) / 100));
 });
 const isConfirmationCodeMatched = computed(() => confirmationCode.value === props.teamCode);
 const canReleaseManualResults = computed(() => (
@@ -73,6 +105,7 @@ async function loadDashboard() {
     dashboard.value = response.data;
     plannedEndDate.value = dashboard.value.planned_end_date || "";
     revealMode.value = dashboard.value.reveal_mode;
+    syncLowScoreRevealSettings(dashboard.value);
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || "대시보드를 불러오지 못했습니다.";
   } finally {
@@ -133,6 +166,50 @@ async function updateRevealMode() {
     revealModeError.value = error.response?.data?.detail || "결과 공개 방식을 저장하지 못했습니다.";
   } finally {
     isSavingRevealMode.value = false;
+  }
+}
+
+async function updateLowScoreReveal() {
+  if (!Number.isInteger(lowScoreRevealIntervalDays.value) || lowScoreRevealIntervalDays.value < 1) {
+    lowScoreRevealError.value = "공개 주기는 1일 이상이어야 합니다.";
+    return;
+  }
+  if (
+    !Number.isInteger(lowScoreRevealPercentage.value)
+    || lowScoreRevealPercentage.value < 1
+    || lowScoreRevealPercentage.value > 50
+  ) {
+    lowScoreRevealError.value = "하위 비율은 1% 이상 50% 이하여야 합니다.";
+    return;
+  }
+
+  lowScoreRevealError.value = "";
+  lowScoreRevealStatus.value = "";
+  isSavingLowScoreReveal.value = true;
+  try {
+    const response = await api.patch(
+      `/teams/${props.teamCode}/admin/low-score-reveal/`,
+      {
+        enabled: lowScoreRevealEnabled.value,
+        interval_days: lowScoreRevealIntervalDays.value,
+        percentage: lowScoreRevealPercentage.value,
+        timezone: browserTimeZone,
+      },
+    );
+    Object.assign(dashboard.value, response.data);
+    syncLowScoreRevealSettings(response.data);
+    lowScoreRevealStatus.value = lowScoreRevealEnabled.value
+      ? "하위 활동 참여자 공개 일정을 저장했어요."
+      : "하위 활동 참여자 공개를 껐어요.";
+  } catch (error) {
+    lowScoreRevealError.value =
+      error.response?.data?.detail
+      || error.response?.data?.interval_days?.[0]
+      || error.response?.data?.percentage?.[0]
+      || error.response?.data?.timezone?.[0]
+      || "하위 활동 참여자 공개 설정을 저장하지 못했습니다.";
+  } finally {
+    isSavingLowScoreReveal.value = false;
   }
 }
 
@@ -333,6 +410,71 @@ onUnmounted(() => {
           :disabled="dashboard.status !== 'ACTIVE' || isSavingPlannedEnd"
         >
           {{ isSavingPlannedEnd ? "저장 중..." : "종료 예정일 저장" }}
+        </button>
+      </form>
+
+      <form class="rounded-xl border border-slate-200 p-4" @submit.prevent="updateLowScoreReveal">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 class="font-semibold text-slate-900">하위 활동 참여자 정기 공개</h2>
+            <p class="mt-2 text-xs leading-5 text-slate-500">
+              설정한 비율만큼 점수가 낮은 참여자의 실제 이름을 모든 참여자에게 알립니다.
+            </p>
+          </div>
+          <label class="relative mt-0.5 inline-flex cursor-pointer items-center">
+            <input
+              v-model="lowScoreRevealEnabled"
+              type="checkbox"
+              class="peer sr-only"
+              :disabled="dashboard.status !== 'ACTIVE' || isSavingLowScoreReveal"
+              @change="applyInitialLowScoreRevealDefaults"
+            />
+            <span class="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-rose-500 peer-disabled:opacity-50 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5" />
+            <span class="sr-only">하위 활동 참여자 정기 공개 사용</span>
+          </label>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <label class="text-sm font-semibold text-slate-700">
+            공개 주기
+            <span class="mt-2 flex items-center gap-2">
+              <input
+                v-model.number="lowScoreRevealIntervalDays"
+                type="number"
+                min="1"
+                class="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2.5"
+                :disabled="!lowScoreRevealEnabled || dashboard.status !== 'ACTIVE' || isSavingLowScoreReveal"
+              />
+              <span class="shrink-0 text-sm text-slate-500">일</span>
+            </span>
+          </label>
+          <label class="text-sm font-semibold text-slate-700">
+            하위 비율
+            <span class="mt-2 flex items-center gap-2">
+              <input
+                v-model.number="lowScoreRevealPercentage"
+                type="number"
+                min="1"
+                max="50"
+                class="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2.5"
+                :disabled="!lowScoreRevealEnabled || dashboard.status !== 'ACTIVE' || isSavingLowScoreReveal"
+              />
+              <span class="shrink-0 text-sm text-slate-500">%</span>
+            </span>
+          </label>
+        </div>
+
+        <p v-if="lowScoreRevealEnabled" class="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700">
+          매번 {{ lowScoreRevealCount }}명의 명단이 공개됩니다💀
+        </p>
+        <p v-if="lowScoreRevealError" class="mt-2 text-sm text-red-600">{{ lowScoreRevealError }}</p>
+        <p v-if="lowScoreRevealStatus" class="mt-2 text-sm text-emerald-700" role="status">{{ lowScoreRevealStatus }}</p>
+        <button
+          type="submit"
+          class="mt-3 w-full rounded-xl border border-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+          :disabled="dashboard.status !== 'ACTIVE' || isSavingLowScoreReveal"
+        >
+          {{ isSavingLowScoreReveal ? "저장 중..." : "정기 공개 설정 저장" }}
         </button>
       </form>
 

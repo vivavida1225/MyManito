@@ -141,6 +141,8 @@ def claim_participant(*, team, user, participant_id):
 
 def get_team_dashboard(team):
     """관리자만 볼 수 있는 참여 진행 현황을 계산한다."""
+    from .low_score_reveal import low_score_reveal_settings_payload
+
     participants = Participant.objects.filter(team=team)
     claimed_participants = list(
         participants.filter(claimed_by__isnull=False)
@@ -170,6 +172,7 @@ def get_team_dashboard(team):
             }
             for participant in claimed_participants
         ],
+        **low_score_reveal_settings_payload(team),
     }
     if team.status == Team.Status.ENDED and team.reveal_mode == Team.RevealMode.ADMIN:
         dashboard["reveal_assignments"] = [
