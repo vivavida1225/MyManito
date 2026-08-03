@@ -4,7 +4,12 @@ import { useRoute, useRouter } from "vue-router";
 
 import api from "../api";
 import { disableWebPush, enableWebPush, syncWebPushDevice, webPushPermission } from "../firebase";
-import { isIosStandalone, subscribeIosWebPush, unsubscribeIosWebPush } from "../iosWebPush";
+import {
+  isIosStandalone,
+  subscribeIosWebPush,
+  syncIosWebPushSubscription,
+  unsubscribeIosWebPush,
+} from "../iosWebPush";
 import { useAuthStore } from "../stores/auth";
 
 const platform = ref("ANDROID");
@@ -65,7 +70,7 @@ async function loadSettings() {
     platform.value = response.data.notification_platform;
     kakaoNotificationEnabled.value = response.data.kakao_notification_enabled ?? true;
     isRegistered.value = platform.value === "IOS"
-      ? response.data.has_ios_web_push_subscription
+      ? await syncIosWebPushSubscription()
       : await syncWebPushDevice();
   } catch (error) {
     errorMessage.value = error.response?.data?.detail || "알림 설정을 불러오지 못했습니다.";

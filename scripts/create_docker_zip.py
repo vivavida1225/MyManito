@@ -18,6 +18,7 @@ EXCLUDED_DIRECTORIES = {
 }
 EXCLUDED_DATABASE_SUFFIXES = (".sqlite3", ".sqlite3-journal", ".sqlite3-shm", ".sqlite3-wal")
 EXCLUDED_POSTGRES_DUMP_SUFFIXES = (".dump", ".backup")
+EXCLUDED_LOCAL_ENV_SUFFIX = ".local"
 EXCLUDED_RELATIVE_DIRECTORIES = {
     Path("data/migration-backups"),
     Path("data/postgres"),
@@ -38,6 +39,11 @@ def should_exclude(path: Path, archive_path: Path) -> bool:
     if path.is_file() and path.name.endswith(EXCLUDED_DATABASE_SUFFIXES):
         return True
     if path.is_file() and path.name.endswith(EXCLUDED_POSTGRES_DUMP_SUFFIXES):
+        return True
+    if (
+        path.name.startswith(".env")
+        and path.name.endswith(EXCLUDED_LOCAL_ENV_SUFFIX)
+    ):
         return True
     return (
         path.parent == PROJECT_ROOT
