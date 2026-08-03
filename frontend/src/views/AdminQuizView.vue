@@ -4,18 +4,57 @@ import { onMounted, onUnmounted, reactive, ref } from "vue";
 import api from "../api";
 
 const props = defineProps({ teamCode: { type: String, required: true } });
-const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Seoul";
 const dashboard = ref(null);
-const form = reactive({ enabled: false, quiz_timezone: browserTimeZone, reference_days: 2, solve_days: 3, next_common_question: "" });
+const rotationClockHours = Array.from({ length: 12 }, (_, index) => index + 1);
+const form = reactive({ enabled: false, rotation_hour: 12, reference_days: 2, solve_days: 3, next_common_question: "" });
 const errorMessage = ref("");
 const statusMessage = ref("");
 const isLoading = ref(false);
 const isSaving = ref(false);
+const activeHelp = ref("");
+const isRotationPickerOpen = ref(false);
+const rotationPeriod = ref("PM");
+
+function toggleHelp(name) {
+  isRotationPickerOpen.value = false;
+  activeHelp.value = activeHelp.value === name ? "" : name;
+}
+
+function closeOverlays() {
+  activeHelp.value = "";
+  isRotationPickerOpen.value = false;
+}
+
+function rotationPeriodForHour(hour) {
+  return hour < 12 ? "AM" : "PM";
+}
+
+function toggleRotationPicker() {
+  const willOpen = !isRotationPickerOpen.value;
+  activeHelp.value = "";
+  if (willOpen) rotationPeriod.value = rotationPeriodForHour(form.rotation_hour);
+  isRotationPickerOpen.value = willOpen;
+}
+
+function rotationHourForPeriod(clockHour) {
+  const hour = clockHour % 12;
+  return rotationPeriod.value === "PM" ? hour + 12 : hour;
+}
+
+function selectRotationHour(clockHour) {
+  form.rotation_hour = rotationHourForPeriod(clockHour);
+  isRotationPickerOpen.value = false;
+}
+
+function isRotationHourSelected(clockHour) {
+  return form.rotation_hour === rotationHourForPeriod(clockHour);
+}
 
 function syncForm() {
   if (!dashboard.value) return;
   form.enabled = dashboard.value.enabled;
-  form.quiz_timezone = dashboard.value.quiz_timezone || browserTimeZone;
+  form.rotation_hour = dashboard.value.rotation_hour ?? 12;
+  rotationPeriod.value = rotationPeriodForHour(form.rotation_hour);
   form.reference_days = dashboard.value.reference_days;
   form.solve_days = dashboard.value.solve_days;
   form.next_common_question = dashboard.value.next_common_question || "";
@@ -24,6 +63,12 @@ function syncForm() {
 function formatDateTime(value) {
   if (!value) return "미정";
   return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function formatRotationHour(hour) {
+  if (hour === 0) return "오전 12시";
+  if (hour === 12) return "오후 12시";
+  return hour < 12 ? `오전 ${hour}시` : `오후 ${hour - 12}시`;
 }
 
 function phaseLabel(phase) {
@@ -113,7 +158,7 @@ onUnmounted(() => window.removeEventListener("realtime-quiz-changed", handleQuiz
 </script>
 
 <template>
-  <section class="p-5 pb-12">
+  <section class="p-5 pb-12" @pointerdown="closeOverlays">
     <div>
       <p class="text-sm font-bold text-amber-500">{{ teamCode }}</p>
       <h1 class="mt-1 text-2xl font-extrabold text-slate-800">비밀 퀴즈 설정</h1>
@@ -129,11 +174,131 @@ onUnmounted(() => window.removeEventListener("realtime-quiz-changed", handleQuiz
           <input v-model="form.enabled" type="checkbox" class="h-6 w-6 accent-amber-500" />
         </label>
         <div class="mt-5 grid grid-cols-2 gap-3">
-          <label class="text-sm font-bold text-slate-700">기준 답안 입력일수<input v-model.number="form.reference_days" type="number" min="1" max="6" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" /></label>
-          <label class="text-sm font-bold text-slate-700">풀이일수<input v-model.number="form.solve_days" type="number" min="1" max="6" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" /></label>
+          <div class="relative">
+            <div class="flex items-center justify-between gap-1.5 text-sm font-bold text-slate-700">
+              <label for="reference-days">기준 답안 입력일수</label>
+              <div class="relative shrink-0">
+                <button
+                  type="button"
+                  class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-400 text-xs font-bold leading-none text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  aria-label="기준 답안 입력일수 도움말"
+                  aria-controls="reference-days-help"
+                  :aria-expanded="activeHelp === 'reference'"
+                  @pointerdown.stop
+                  @click="toggleHelp('reference')"
+                  @keydown.esc.stop="activeHelp = ''"
+                >
+                  i
+                </button>
+                <div
+                  v-if="activeHelp === 'reference'"
+                  id="reference-days-help"
+                  role="tooltip"
+                  class="absolute left-1/2 top-7 z-20 w-64 max-w-[calc(100vw-3rem)] -translate-x-1/2 rounded-xl bg-slate-800 px-3 py-2 text-xs font-medium leading-5 text-white shadow-lg"
+                  @pointerdown.stop
+                >
+                  <span aria-hidden="true" class="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-800"></span>
+                  다음에 마니또가 풀 문제의 답안을 미리 입력하고, 이전 단계에서 마니또가 푼 문제를 채점하는 기간이에요.
+                </div>
+              </div>
+            </div>
+            <input id="reference-days" v-model.number="form.reference_days" type="number" min="1" max="6" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" />
+          </div>
+          <div class="relative">
+            <div class="flex items-center justify-between gap-1.5 text-sm font-bold text-slate-700">
+              <label for="solve-days">풀이일수</label>
+              <div class="relative shrink-0">
+                <button
+                  type="button"
+                  class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-400 text-xs font-bold leading-none text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  aria-label="풀이일수 도움말"
+                  aria-controls="solve-days-help"
+                  :aria-expanded="activeHelp === 'solve'"
+                  @pointerdown.stop
+                  @click="toggleHelp('solve')"
+                  @keydown.esc.stop="activeHelp = ''"
+                >
+                  i
+                </button>
+                <div
+                  v-if="activeHelp === 'solve'"
+                  id="solve-days-help"
+                  role="tooltip"
+                  class="absolute right-0 top-7 z-20 w-64 max-w-[calc(100vw-3rem)] rounded-xl bg-slate-800 px-3 py-2 text-xs font-medium leading-5 text-white shadow-lg"
+                  @pointerdown.stop
+                >
+                  <span aria-hidden="true" class="absolute -top-1 right-1.5 h-2 w-2 rotate-45 bg-slate-800"></span>
+                  상대방이 낸 문제에 대한 답안을 입력해야 하는 기간이에요.
+                </div>
+              </div>
+            </div>
+            <input id="solve-days" v-model.number="form.solve_days" type="number" min="1" max="6" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3" />
+          </div>
         </div>
         <p class="mt-2 text-xs text-slate-500">회차 주기 {{ form.reference_days + form.solve_days }}일 · 최대 7일</p>
-        <label class="mt-5 block text-sm font-bold text-slate-700">관리자 시간대<input v-model="form.quiz_timezone" :disabled="dashboard.timezone_locked" class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 disabled:bg-slate-100" /></label>
+        <div class="mt-5 text-sm font-bold text-slate-700">
+          <span>기준 시간</span>
+          <div class="relative mt-2">
+            <button
+              type="button"
+              class="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-amber-100 disabled:bg-slate-100 disabled:text-slate-500"
+              :disabled="dashboard.rotation_hour_locked"
+              aria-haspopup="dialog"
+              aria-controls="rotation-hour-picker"
+              :aria-expanded="isRotationPickerOpen"
+              :aria-label="`기준 시간: ${formatRotationHour(form.rotation_hour)}`"
+              @pointerdown.stop
+              @click="toggleRotationPicker"
+              @keydown.esc.stop="isRotationPickerOpen = false"
+            >
+              <span>{{ formatRotationHour(form.rotation_hour) }}</span>
+              <svg aria-hidden="true" class="h-5 w-5 transition-transform" :class="{ 'rotate-180': isRotationPickerOpen }" viewBox="0 0 20 20" fill="none">
+                <path d="m5 7.5 5 5 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+
+            <div
+              v-if="isRotationPickerOpen"
+              id="rotation-hour-picker"
+              role="dialog"
+              aria-label="기준 시간 선택"
+              class="absolute left-0 right-0 top-full z-30 mt-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl"
+              @pointerdown.stop
+              @keydown.esc.stop="isRotationPickerOpen = false"
+            >
+              <div class="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="오전 또는 오후 선택">
+                <button
+                  v-for="period in ['AM', 'PM']"
+                  :key="period"
+                  type="button"
+                  class="min-h-12 rounded-lg px-3 py-2 text-sm font-extrabold transition"
+                  :class="rotationPeriod === period ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500'"
+                  :aria-pressed="rotationPeriod === period"
+                  @click="rotationPeriod = period"
+                >
+                  {{ period === "AM" ? "오전" : "오후" }}
+                </button>
+              </div>
+              <div class="mt-3 grid grid-cols-4 gap-2" role="group" aria-label="시간 선택">
+                <button
+                  v-for="hour in rotationClockHours"
+                  :key="hour"
+                  type="button"
+                  class="min-h-12 rounded-xl px-2 py-2 text-sm font-extrabold transition focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  :class="isRotationHourSelected(hour) ? 'bg-amber-400 text-amber-950' : 'bg-slate-50 text-slate-700 hover:bg-amber-50'"
+                  :aria-pressed="isRotationHourSelected(hour)"
+                  @click="selectRotationHour(hour)"
+                >
+                  {{ hour }}시
+                </button>
+              </div>
+            </div>
+          </div>
+          <span class="mt-2 block text-xs font-normal leading-5 text-slate-500">
+            <template v-if="dashboard.rotation_hour_locked">진행 중인 회차가 끝나면 변경할 수 있어요.</template>
+            <template v-else>{{ dashboard.quiz_timezone }} 기준 매일 {{ formatRotationHour(form.rotation_hour) }}에 퀴즈 날짜가 바뀌어요.</template>
+          </span>
+        </div>
         <label class="mt-5 block text-sm font-bold text-slate-700">다음 회차 공통 질문<textarea v-model="form.next_common_question" rows="4" class="mt-2 w-full rounded-xl border border-slate-200 p-3 text-sm leading-6" placeholder="비워 두면 참가자별 랜덤 질문이 배정됩니다." /></label>
         <button class="mt-5 min-h-12 w-full rounded-xl bg-amber-400 px-4 py-3 font-extrabold text-amber-950 disabled:opacity-50" :disabled="isSaving || dashboard.team_status !== 'ACTIVE'" type="submit">{{ isSaving ? "저장 중..." : "설정 저장" }}</button>
       </form>

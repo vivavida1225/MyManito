@@ -389,6 +389,36 @@ class QuizFlowTests(TestCase):
         self.assertNotIn("participant_id", serialized)
         self.assertNotIn("user_id", serialized)
 
+    def test_admin_quiz_api_exposes_rotation_hour_and_rejects_timezone_changes(self):
+        self.settings.enabled = False
+        self.settings.next_round_starts_at = None
+        self.settings.save(update_fields=["enabled", "next_round_starts_at"])
+        client = APIClient()
+        client.force_authenticate(self.team.owner)
+
+        timezone_change = client.patch(
+            f"/api/teams/{self.team.code}/admin/quiz/",
+            {"quiz_timezone": "UTC"},
+            format="json",
+        )
+
+        self.assertEqual(timezone_change.status_code, 400)
+        self.settings.refresh_from_db()
+        self.assertEqual(self.settings.quiz_timezone, "Asia/Seoul")
+
+        response = client.get(f"/api/teams/{self.team.code}/admin/quiz/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["quiz_timezone"], "Asia/Seoul")
+        self.assertEqual(response.data["rotation_hour"], 12)
+        self.assertNotIn("timezone_locked", response.data)
+
+        invalid_hour = client.patch(
+            f"/api/teams/{self.team.code}/admin/quiz/",
+            {"rotation_hour": 24},
+            format="json",
+        )
+        self.assertEqual(invalid_hour.status_code, 400)
+
     def test_admin_quiz_api_limits_progress_to_two_latest_active_rounds(self):
         first_round = self.create_round()
         first_round.collision_decision = QuizRound.CollisionDecision.PENDING
@@ -540,7 +570,7 @@ class QuizFlowTests(TestCase):
             {self.users[1].id, self.users[2].id},
         )
 
-    def test_enabling_requires_all_claims_and_schedules_next_local_midnight(self):
+    def test_enabling_requires_all_claims(self):
         self.settings.enabled = False
         self.settings.next_round_starts_at = None
         self.settings.save(update_fields=["enabled", "next_round_starts_at"])
@@ -549,16 +579,73 @@ class QuizFlowTests(TestCase):
         with self.assertRaises(QuizError):
             update_quiz_settings(
                 self.team,
-                {"enabled": True, "quiz_timezone": "Asia/Seoul"},
+                {"enabled": True},
                 self.now,
             )
+
+    def test_enabling_schedules_next_rotation_hour_in_stored_timezone(self):
+        zone = ZoneInfo("Asia/Seoul")
+        now = datetime(2026, 8, 4, 13, 30, tzinfo=zone)
+        self.settings.enabled = False
+        self.settings.next_round_starts_at = None
+        self.settings.save(update_fields=["enabled", "next_round_starts_at"])
+
+        update_quiz_settings(self.team, {"enabled": True}, now)
+
+        self.settings.refresh_from_db()
+        self.assertEqual(self.settings.rotation_hour, 12)
+        self.assertEqual(
+            timezone.localtime(self.settings.next_round_starts_at, zone),
+            datetime(2026, 8, 5, 12, 0, tzinfo=zone),
+        )
+
+        update_quiz_settings(self.team, {"enabled": False}, now)
+        update_quiz_settings(self.team, {"enabled": True, "rotation_hour": 18}, now)
+
+        self.settings.refresh_from_db()
+        self.assertEqual(self.settings.rotation_hour, 18)
+        self.assertEqual(
+            timezone.localtime(self.settings.next_round_starts_at, zone),
+            datetime(2026, 8, 4, 18, 0, tzinfo=zone),
+        )
+
+    def test_rotation_hour_change_is_blocked_during_an_active_round(self):
+        self.create_round()
+
+        with self.assertRaisesMessage(QuizError, "진행 중인 퀴즈 회차"):
+            update_quiz_settings(self.team, {"rotation_hour": 18}, self.now)
+
+        self.settings.refresh_from_db()
+        self.assertEqual(self.settings.rotation_hour, 12)
+
+    def test_round_boundaries_keep_rotation_hour_across_dst(self):
+        zone = ZoneInfo("America/New_York")
+        starts_at = datetime(2026, 3, 7, 12, 0, tzinfo=zone)
+        self.settings.quiz_timezone = "America/New_York"
+        self.settings.rotation_hour = 12
+        self.settings.next_round_starts_at = starts_at
+        self.settings.save(
+            update_fields=["quiz_timezone", "rotation_hour", "next_round_starts_at"]
+        )
+
+        round_obj = create_due_round(self.team.id, starts_at)
+
+        self.assertEqual(
+            timezone.localtime(round_obj.reference_ends_at, zone),
+            datetime(2026, 3, 8, 12, 0, tzinfo=zone),
+        )
+        self.assertEqual(
+            timezone.localtime(round_obj.solve_ends_at, zone),
+            datetime(2026, 3, 9, 12, 0, tzinfo=zone),
+        )
 
     def test_collision_at_solve_start_waits_then_auto_cancels_without_score(self):
         zone = ZoneInfo("Asia/Seoul")
         local_date = timezone.localtime(self.now, zone).date() + timedelta(days=1)
         starts_at = datetime.combine(local_date, time.min, tzinfo=zone)
+        self.settings.rotation_hour = 0
         self.settings.next_round_starts_at = starts_at
-        self.settings.save(update_fields=["next_round_starts_at"])
+        self.settings.save(update_fields=["rotation_hour", "next_round_starts_at"])
         self.team.planned_end_date = local_date + timedelta(days=1)
         self.team.save(update_fields=["planned_end_date"])
         round_obj = create_due_round(self.team.id, starts_at)

@@ -30,10 +30,23 @@ def normalize_question(value):
     return " ".join((value or "").strip().split())
 
 
-def next_local_midnight(now, timezone_name):
+def next_local_rotation(now, timezone_name, rotation_hour):
     zone = ZoneInfo(timezone_name)
-    local_date = timezone.localtime(now, zone).date() + timedelta(days=1)
-    return datetime.combine(local_date, time.min, tzinfo=zone)
+    local_now = timezone.localtime(now, zone)
+    candidate = datetime.combine(
+        local_now.date(),
+        time(hour=rotation_hour),
+        tzinfo=zone,
+    )
+    if candidate <= local_now:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def local_rotation_after_days(value, days, timezone_name, rotation_hour):
+    zone = ZoneInfo(timezone_name)
+    local_date = timezone.localtime(value, zone).date() + timedelta(days=days)
+    return datetime.combine(local_date, time(hour=rotation_hour), tzinfo=zone)
 
 
 def planned_end_in_quiz_timezone(team, timezone_name, planned_end_date=None):
@@ -51,8 +64,18 @@ def round_collides_with_end(team, round_obj, planned_end_date=None):
 def preview_collision(team, quiz_settings, planned_end_date=None):
     if not quiz_settings.next_round_starts_at or not quiz_settings.quiz_timezone:
         return False
-    reference_end = quiz_settings.next_round_starts_at + timedelta(days=quiz_settings.reference_days)
-    solve_end = reference_end + timedelta(days=quiz_settings.solve_days)
+    reference_end = local_rotation_after_days(
+        quiz_settings.next_round_starts_at,
+        quiz_settings.reference_days,
+        quiz_settings.quiz_timezone,
+        quiz_settings.rotation_hour,
+    )
+    solve_end = local_rotation_after_days(
+        quiz_settings.next_round_starts_at,
+        quiz_settings.reference_days + quiz_settings.solve_days,
+        quiz_settings.quiz_timezone,
+        quiz_settings.rotation_hour,
+    )
     end_at = planned_end_in_quiz_timezone(team, quiz_settings.quiz_timezone, planned_end_date)
     return bool(end_at and reference_end <= end_at < solve_end)
 
@@ -187,9 +210,24 @@ def create_due_round(team_id, now=None):
     if existing:
         return existing
     sequence = (QuizRound.objects.filter(team=team).order_by("-sequence").values_list("sequence", flat=True).first() or 0) + 1
-    reference_ends_at = starts_at + timedelta(days=quiz_settings.reference_days)
-    solve_ends_at = reference_ends_at + timedelta(days=quiz_settings.solve_days)
-    evaluation_ends_at = solve_ends_at + timedelta(days=quiz_settings.reference_days)
+    reference_ends_at = local_rotation_after_days(
+        starts_at,
+        quiz_settings.reference_days,
+        quiz_settings.quiz_timezone,
+        quiz_settings.rotation_hour,
+    )
+    solve_ends_at = local_rotation_after_days(
+        starts_at,
+        quiz_settings.reference_days + quiz_settings.solve_days,
+        quiz_settings.quiz_timezone,
+        quiz_settings.rotation_hour,
+    )
+    evaluation_ends_at = local_rotation_after_days(
+        starts_at,
+        (quiz_settings.reference_days * 2) + quiz_settings.solve_days,
+        quiz_settings.quiz_timezone,
+        quiz_settings.rotation_hour,
+    )
     common_question = quiz_settings.next_common_question.strip()
     question_mode = QuizRound.QuestionMode.COMMON if common_question else QuizRound.QuestionMode.SYSTEM
 
@@ -591,9 +629,15 @@ def update_quiz_settings(team, validated_data, now=None):
     if reference_days < 1 or solve_days < 1 or reference_days + solve_days > 7:
         raise QuizError("입력일수와 풀이일수는 각각 1일 이상이며 합계가 7일 이하여야 합니다.")
 
-    timezone_name = validated_data.get("quiz_timezone", quiz_settings.quiz_timezone)
-    if timezone_name != quiz_settings.quiz_timezone and QuizRound.objects.filter(team=locked_team).exists():
-        raise QuizError("첫 회차가 시작된 뒤에는 퀴즈 시간대를 변경할 수 없습니다.")
+    rotation_hour = validated_data.get("rotation_hour", quiz_settings.rotation_hour)
+    if rotation_hour < 0 or rotation_hour > 23:
+        raise QuizError("기준 시간은 0시부터 23시 사이여야 합니다.")
+    rotation_hour_changed = rotation_hour != quiz_settings.rotation_hour
+    if rotation_hour_changed and QuizRound.objects.filter(
+        team=locked_team,
+        status=QuizRound.Status.ACTIVE,
+    ).exists():
+        raise QuizError("진행 중인 퀴즈 회차가 끝난 뒤 기준 시간을 변경할 수 있습니다.")
 
     common_question = validated_data.get("next_common_question", quiz_settings.next_common_question)
     common_question = common_question.strip()
@@ -611,14 +655,22 @@ def update_quiz_settings(team, validated_data, now=None):
             raise QuizError("모든 참여자가 본인 확인을 마친 뒤 퀴즈 모드를 켤 수 있습니다.")
         if QuizRound.objects.filter(team=locked_team, status=QuizRound.Status.ACTIVE).exists():
             raise QuizError("기존 회차가 정산 또는 취소된 뒤 다시 활성화할 수 있습니다.")
-        if not timezone_name:
-            raise QuizError("퀴즈 시간대를 입력해 주세요.")
-        quiz_settings.next_round_starts_at = next_local_midnight(now, timezone_name)
+        quiz_settings.next_round_starts_at = next_local_rotation(
+            now,
+            quiz_settings.quiz_timezone,
+            rotation_hour,
+        )
+    elif requested_enabled and rotation_hour_changed:
+        quiz_settings.next_round_starts_at = next_local_rotation(
+            now,
+            quiz_settings.quiz_timezone,
+            rotation_hour,
+        )
     elif not requested_enabled:
         quiz_settings.next_round_starts_at = None
 
     quiz_settings.enabled = requested_enabled
-    quiz_settings.quiz_timezone = timezone_name
+    quiz_settings.rotation_hour = rotation_hour
     quiz_settings.reference_days = reference_days
     quiz_settings.solve_days = solve_days
     quiz_settings.next_common_question = common_question
@@ -981,8 +1033,9 @@ def admin_quiz_payload(team, now=None):
         "team_code": team.code,
         "team_status": team.status,
         "enabled": quiz_settings.enabled,
-        "quiz_timezone": quiz_settings.quiz_timezone or None,
-        "timezone_locked": QuizRound.objects.filter(team=team).exists(),
+        "quiz_timezone": quiz_settings.quiz_timezone,
+        "rotation_hour": quiz_settings.rotation_hour,
+        "rotation_hour_locked": bool(active_rounds),
         "reference_days": quiz_settings.reference_days,
         "solve_days": quiz_settings.solve_days,
         "next_common_question": quiz_settings.next_common_question,

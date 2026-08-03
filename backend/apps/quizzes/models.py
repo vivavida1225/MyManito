@@ -24,7 +24,11 @@ class SystemQuizQuestion(models.Model):
 class TeamQuizSettings(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, related_name="quiz_settings")
     enabled = models.BooleanField(default=False)
-    quiz_timezone = models.CharField(max_length=64, blank=True)
+    quiz_timezone = models.CharField(max_length=64, default=settings.TIME_ZONE)
+    rotation_hour = models.PositiveSmallIntegerField(
+        default=12,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+    )
     reference_days = models.PositiveSmallIntegerField(default=2)
     solve_days = models.PositiveSmallIntegerField(default=3)
     next_round_starts_at = models.DateTimeField(null=True, blank=True)
