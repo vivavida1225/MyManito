@@ -20,8 +20,8 @@ EXCLUDED_DATABASE_SUFFIXES = (".sqlite3", ".sqlite3-journal", ".sqlite3-shm", ".
 EXCLUDED_POSTGRES_DUMP_SUFFIXES = (".dump", ".backup")
 EXCLUDED_LOCAL_ENV_SUFFIX = ".local"
 EXCLUDED_RELATIVE_DIRECTORIES = {
-    Path("data/migration-backups"),
-    Path("data/postgres"),
+    Path("data"),
+    Path("tmp"),
 }
 
 
