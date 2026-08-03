@@ -148,9 +148,9 @@ onUnmounted(() => window.removeEventListener("realtime-quiz-changed", handleQuiz
     <div v-else-if="quiz" class="mt-6 space-y-5">
       <article v-if="quiz.reference_task" class="rounded-3xl bg-amber-50 p-5 shadow-sm ring-1 ring-amber-200">
         <p class="text-sm font-extrabold text-amber-700">{{ quiz.reference_task.question_kind === "COMMON" ? "공통 퀴즈!" : "랜덤 퀴즈!" }}</p>
-        <div class="mt-2 flex items-start gap-1.5">
+        <div class="mt-2 flex flex-wrap items-start gap-x-1.5">
           <h2 class="text-lg font-extrabold leading-7 text-slate-800">마니또가 풀 문제의 답안</h2>
-          <div class="relative mt-1 shrink-0">
+          <div class="mt-1 shrink-0">
             <button
               type="button"
               class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-400 bg-white text-xs font-bold leading-none text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-300"
@@ -163,16 +163,16 @@ onUnmounted(() => window.removeEventListener("realtime-quiz-changed", handleQuiz
             >
               i
             </button>
-            <div
-              v-if="isReferenceHelpOpen"
-              id="reference-answer-help"
-              role="tooltip"
-              class="absolute right-0 top-7 z-20 w-72 max-w-[calc(100vw-3rem)] rounded-xl bg-slate-800 px-3 py-2 text-xs font-medium leading-5 text-white shadow-lg"
-              @pointerdown.stop
-            >
-              <span aria-hidden="true" class="absolute -top-1 right-1.5 h-2 w-2 rotate-45 bg-slate-800"></span>
-              나를 챙겨주는 마니또가 보게 될 질문과 답변이에요. <strong class="font-extrabold">본인에 대한</strong> 설명을 담은 답안으로 입력해 주세요!
-            </div>
+          </div>
+          <div
+            v-if="isReferenceHelpOpen"
+            id="reference-answer-help"
+            role="tooltip"
+            class="relative mt-2 w-full min-w-0 basis-full break-words rounded-xl bg-slate-800 px-3 py-2 text-xs font-medium leading-5 text-white shadow-lg"
+            @pointerdown.stop
+          >
+            <span aria-hidden="true" class="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-800"></span>
+            나를 챙겨주는 마니또가 보게 될 질문과 답변이에요. <strong class="font-extrabold">본인에 대한</strong> 설명을 담은 답안으로 입력해 주세요!
           </div>
         </div>
         <p v-if="quiz.reference_task.decision_pending" class="mt-3 rounded-xl bg-white/80 p-3 text-sm font-bold text-orange-700">관리자의 회차 진행 결정을 기다리고 있어요. 답안은 미리 확정할 수 있습니다.</p>
